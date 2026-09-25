@@ -14,15 +14,15 @@ Given business records across three data sources (`Source 1`, `Source 2`, `Sourc
 
 ---
 
-## 🏗️ 2. Core 14-Layer Pipeline Architecture
+## 🏗️ 2. Core 14-Layer Refined Pipeline Architecture
 
-Our solution implements a disciplined **14-Layer Architecture** engineered specifically to optimize the precision-heavy **Macro $F_{0.5}$** metric while maintaining an ultra-compact candidate blocking pool ($K \approx 5.5$ per reference entity) to excel in Amazon's scalability review.
+Our solution implements a disciplined, highly modular **14-Layer Refined Architecture**. Designed for rapid iteration, fast baseline submission, and open-set country adaptation (handling France in test data), it maximizes the precision-heavy **Macro $F_{0.5}$** metric while maintaining an ultra-compact candidate blocking pool ($K \approx 5.5$ per reference entity) to excel in Amazon's scalability audit.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                    INPUT TSV DATASETS                            │
-│  train_source1.tsv, train_source2.tsv, train_source3.tsv,        │
-│  train_ground_truth.tsv, test_source1/2/3.tsv                    │
+│                    INPUT FILES                                    │
+│  train_source1/2/3.tsv, train_ground_truth.tsv,                  │
+│  test_source1/2/3.tsv                                            │
 └────────────────────────────┬─────────────────────────────────────┘
                              │
                              ▼
@@ -34,7 +34,8 @@ Our solution implements a disciplined **14-Layer Architecture** engineered speci
                                  ▼
         ╔════════════════════════════════════════════════╗
         ║  L1  TRAIN/VAL SPLIT + F0.5 SCORER             ║
-        ║  Stratified split by country, macro F0.5       ║
+        ║  Plain random split by S1 ID                   ║
+        ║  (France = known validation blind spot)        ║
         ╚════════════════════════┬═══════════════════════╝
                                  │
                                  ▼
@@ -52,8 +53,9 @@ Our solution implements a disciplined **14-Layer Architecture** engineered speci
         ║  L3b  Channel A — Exact-key index              ║
         ║  L3c  Channel C — IDF-weighted token index     ║
         ║  L3d  Channel D — Char TF-IDF + NN             ║
-        ║  L3e  Channel E — Dense retrieval (optional)   ║
-        ║  L3f  Per-channel recall measurement           ║
+        ║  L3e  Per-channel recall measurement           ║
+        ║                                                ║
+        ║  (Dense retrieval REMOVED — lives in L12b)     ║
         ╚════════════════════════┬═══════════════════════╝
                                  │
                                  ▼
@@ -66,14 +68,16 @@ Our solution implements a disciplined **14-Layer Architecture** engineered speci
         ╔════════════════════════════════════════════════╗
         ║  L5  ADAPTIVE CANDIDATE TRUNCATION             ║
         ║  Coarse score + tiered budget + recall-vs-K    ║
-        ║  → OUTPUT: candidate_pairs.tsv                 ║
+        ║  → candidate_pairs.tsv                         ║
+        ║  → blocking_report.md  [NEW explicit output]   ║
         ╚════════════════════════┬═══════════════════════╝
                                  │
                                  ▼
         ╔════════════════════════════════════════════════╗
-        ║  L6  TRAINING PAIR CONSTRUCTION + HARD NEGS    ║
-        ║  Positive / hard neg / easy neg split,         ║
-        ║  stratified coarse bands, ablation on/off      ║
+        ║  L6  TRAINING PAIRS + HARD NEGATIVE A/B TEST   ║
+        ║  Variant A: with hard negatives                ║
+        ║  Variant B: without hard negatives             ║
+        ║  Compare val F0.5, keep winner                 ║
         ╚════════════════════════┬═══════════════════════╝
                                  │
                                  ▼
@@ -91,7 +95,7 @@ Our solution implements a disciplined **14-Layer Architecture** engineered speci
                                  │
                                  ▼
         ╔════════════════════════════════════════════════╗
-        ║  L9  CALIBRATION (conditional)                 ║
+        ║  L9  CALIBRATION (CONDITIONAL — skip if Tier 1)║
         ║  Isotonic on OOF; only if per-country or       ║
         ║  stacking is used                              ║
         ╚════════════════════════┬═══════════════════════╝
@@ -99,13 +103,12 @@ Our solution implements a disciplined **14-Layer Architecture** engineered speci
                                  ▼
         ╔════════════════════════════════════════════════╗
         ║  L10  DECISION ENGINE                          ║
-        ║  Joint τ_match + τ_s tuning, margin rule,      ║
-        ║  singleton protection, France fallback         ║
+        ║  Joint τ_match + τ_s, margin rule, France veto ║
         ╚════════════════════════┬═══════════════════════╝
                                  │
                                  ▼
         ╔════════════════════════════════════════════════╗
-        ║  L10.5  ERROR ANALYSIS                         ║
+        ║  L10.5  ERROR ANALYSIS + FRANCE SPOT-CHECK     ║
         ║  Bucket errors by country/source/name length   ║
         ║  → tells you which stretch feature to add      ║
         ╚════════════════════════┬═══════════════════════╝
@@ -119,7 +122,7 @@ Our solution implements a disciplined **14-Layer Architecture** engineered speci
                                  │
                                  ▼
         ╔════════════════════════════════════════════════╗
-        ║  L11.5  FIRST SUBMISSION                       ║
+        ║  L11.5  FIRST SUBMISSION ✅ (floor guaranteed) ║
         ║  Upload matching_results.tsv to leaderboard    ║
         ╚════════════════════════┬═══════════════════════╝
                                  │
@@ -146,45 +149,52 @@ Our solution implements a disciplined **14-Layer Architecture** engineered speci
                                  ▼
                     output/matching_results.tsv
                     output/candidate_pairs.tsv
+                    output/blocking_report.md
 ```
 
 ---
 
-## 🔬 3. Detailed Layer Breakdown
+## 🔬 3. Detailed Layer Specifications
 
-### **L0 – L2: Foundation & Data Normalization**
-* **L0 Setup & Audit**: Streaming TSV scanner logging schema compliance, record counts, and country distributions.
-* **L1 Validation & Scoring**: Stratified train/val split (80/20 on S1 entities) with exact macro $F_{0.5}$ metric computation.
-* **L2 Normalization**:
-  * Unicode NFKC normalization + accent stripping (`café` $\rightarrow$ `cafe`).
-  * Multilingual script detection (Hindi Devanagari, Tamil, Kannada, Telugu).
-  * Legal suffix canonicalization (`Pvt Ltd`, `LLC`, `SARL`, `Inc`, `Corp`).
-  * Structured address parsing & digit sequence extraction.
+### **L0 – L2: Setup, Validation & Normalization**
+* **L0 Setup & Audit**: Streaming TSV verification of schema, nulls, record counts, and Unicode scripts.
+* **L1 Validation & Scoring**: Stratified train/val split by S1 ID with macro $F_{0.5}$ evaluation. *(Note: France is a known validation blind spot present only in test data!)*
+* **L2 Normalization Engine**:
+  * Unicode NFKC normalization + accent stripping (`réseau` $\rightarrow$ `reseau`).
+  * Legal suffix canonicalization (`Pvt Ltd`, `LLC`, `SARL`, `Inc`, `Corp` $\rightarrow$ canonical form).
+  * Structured address parsing (`house_num`, `street`, `city`, `postal`, `state`, `country`) & digit sequence extraction.
 
-### **L3 – L5: Country-Stratified Blocking & Reciprocal Rank Fusion**
-* **L3 Country Stratification**: Records only match within the same country (`US`, `India`, `France`). Zero cross-country overhead.
-* **Multi-Channel Retrieval**:
+### **L3 – L5: Fast Stratified Blocking & Adaptive Candidate Truncation**
+* **L3 Country Stratification**: Records are partitioned into independent country buckets (`US`, `India`, `France`). Zero cross-country overhead.
+* **Multi-Channel Fast Retrieval**:
   * *L3b Channel A*: Exact normalized name + postal/house hash.
-  * *L3c Channel C*: High-IDF token inverted index (filters out stopwords like `Store`, `Enterprises`).
-  * *L3d Channel D*: Character 2-4 gram TF-IDF cosine nearest neighbors.
-  * *L3e Channel E*: Dense multilingual embeddings (`BGE-M3`).
-* **L4 Reciprocal Rank Fusion (RRF)**: Merges channels via $RRF(d) = \sum_{c \in C} \frac{1}{60 + r_c(d)}$.
-* **L5 Adaptive Truncation**: Tiered candidate budget targeting $K \approx 5.5 \text{ to } 7.0$ candidates per S1 entity $\rightarrow$ exports `output/candidate_pairs.tsv`.
+  * *L3c Channel C*: High-IDF token inverted index (filters out stopwords).
+  * *L3d Channel D*: Character 2-4 gram TF-IDF nearest neighbors.
+  * *(Dense retrieval BGE-M3 is decoupled into L12b stretch for fast initial execution)*.
+* **L4 Reciprocal Rank Fusion (RRF)**: Merges sparse channels into a single ranked candidate list per S1 entity.
+* **L5 Adaptive Truncation**: Coarse scoring + tiered budget allocation targeting $K \approx 5.5 \text{ to } 7.0$ candidates per entity.
+  * **Explicit Outputs**: `output/candidate_pairs.tsv` and `output/blocking_report.md` (for Amazon's candidate compactness review).
 
-### **L6 – L9: Training, Feature Engineering & GBDT Matcher**
-* **L6 Hard Negative Mining**: Constructs training pairs in 1 Positive : 3 Hard Negatives : 2 Easy Negatives ratio.
-* **L7 Pairwise Feature Vector**: 27+ features covering name similarities, structured address digit conflicts, retrieval signals, and structural length ratios.
-* **L8 GBDT Matcher**: 5-fold cross-validated LightGBM trained with out-of-fold probability outputs.
-* **L9 Calibration**: Isotonic probability calibration on OOF predictions.
+### **L6 – L9: Hard Negative A/B Testing, Features & GBDT Training**
+* **L6 Training Pair Construction (A/B Test)**:
+  * Variant A: Includes hard negativedecoys (top coarse-score non-matches).
+  * Variant B: Standard candidate pool sampling.
+  * *Evaluates validation $F_{0.5}$ to select the winning pair sampler.*
+* **L7 Pairwise Feature Vector**: 27+ features covering string distances, structured address digit conflicts, retrieval RRF ranks, and structural ratios.
+* **L8 Model Training**: 5-fold cross-validated LightGBM with out-of-fold probability outputs.
+* **L9 Calibration**: Conditional isotonic probability calibration on OOF predictions.
 
-### **L10 – L13: Decision Engine, Test Inference & Packaging**
-* **L10 Decision Engine**: Joint tuning of match threshold $\tau_{\text{match}}$ and singleton threshold $\tau_s$ to protect the 5.6% singletons.
-* **L10.5 Error Analysis**: Diagnostic breakdown of false positive / false negative errors by country, source, and name length.
-* **L11 Test Inference**: Generates `matching_results.tsv` and `candidate_pairs.tsv`; passes `utils/validate_submission.py`.
-* **L11.5 Submission #1**: Live portal submission.
-* **L12 Stretch Iteration**: Targeted enhancement based on error analysis (Phonetic blocking, BGE-M3 dense FAISS, or Multilingual Cross-Encoder).
-* **L12.5 Ablation Log**: Quantitative validation of stretch gains.
-* **L13 Final Packaging**: Assembles `<team_name>_submission.zip` with runnable code and methodology write-up.
+### **L10 – L13: Decision Engine, First Submission & Stretch Iterations**
+* **L10 Decision Engine**: Joint tuning of match threshold $\tau_{\text{match}}$ and singleton threshold $\tau_s$ with explicit **France fallback veto rules**.
+* **L10.5 Error Analysis & France Spot-Check**: Diagnostic error breakdown by country, source, and string length to pinpoint weaknesses.
+* **L11 Test Inference & Output Verification**: Generates `matching_results.tsv`, `candidate_pairs.tsv`, and `blocking_report.md`. Validates schema via `utils/validate_submission.py`.
+* **L11.5 First Portal Submission**: Live portal upload securing our baseline leaderboard score.
+* **L12 Targeted Stretch Iteration**: Pick ONE high-impact stretch based on L10.5 error analysis:
+  * *12a*: Phonetic Blocking (Soundex/Metaphone).
+  * *12b*: Dense Retrieval (`BGE-M3` FAISS).
+  * *12c*: Multilingual Cross-Encoder (`paraphrase-multilingual-MiniLM-L12-v2`) + Stacking Meta-Learner.
+* **L12.5 Ablation Log**: Quantitative validation proving stretch gains on validation $F_{0.5}$.
+* **L13 Final Packaging**: Assembles `<team_name>_submission.zip` with runnable source code, `requirements.txt`, and completed `Documentation_template.md`.
 
 ---
 
@@ -200,7 +210,8 @@ Our solution implements a disciplined **14-Layer Architecture** engineered speci
     │   ├── audit_summary.json          # Dataset audit counts & missing rates
     │   ├── deep_data_profile.json      # Full statistical breakdown
     │   ├── matching_results.tsv        # Final entity matches (Leaderboard Upload)
-    │   └── candidate_pairs.tsv         # Blocking candidate pairs (Audit Evaluation)
+    │   ├── candidate_pairs.tsv         # Blocking candidate pairs (Audit Evaluation)
+    │   └── blocking_report.md          # Candidate recall & reduction ratio report
     └── src/
         ├── inspect_samples.py          # Data profiling & noise pattern inspector
         ├── audit.py                    # Streaming dataset validation & distribution checker
