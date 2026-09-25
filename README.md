@@ -137,13 +137,11 @@ Our solution implements a disciplined, highly modular **14-Layer Refined Archite
                                  ▼
         ╔════════════════════════════════════════════════╗
         ║  L12.5  ABLATION LOG                           ║
-        ║  Compare val F0.5 with/without stretch         ║
         ╚════════════════════════┬═══════════════════════╝
                                  │
                                  ▼
         ╔════════════════════════════════════════════════╗
         ║  L13  DOCUMENTATION + PACKAGING                ║
-        ║  Methodology, README, requirements, ZIP        ║
         ╚════════════════════════════════════════════════╝
                                  │
                                  ▼
@@ -154,82 +152,55 @@ Our solution implements a disciplined, highly modular **14-Layer Refined Archite
 
 ---
 
-## 🔬 3. Detailed Layer Specifications
+## 📂 3. Modular Layer Directory Structure
 
-### **L0 – L2: Setup, Validation & Normalization**
-* **L0 Setup & Audit**: Streaming TSV verification of schema, nulls, record counts, and Unicode scripts.
-* **L1 Validation & Scoring**: Stratified train/val split by S1 ID with macro $F_{0.5}$ evaluation. *(Note: France is a known validation blind spot present only in test data!)*
-* **L2 Normalization Engine**:
-  * Unicode NFKC normalization + accent stripping (`réseau` $\rightarrow$ `reseau`).
-  * Legal suffix canonicalization (`Pvt Ltd`, `LLC`, `SARL`, `Inc`, `Corp` $\rightarrow$ canonical form).
-  * Structured address parsing (`house_num`, `street`, `city`, `postal`, `state`, `country`) & digit sequence extraction.
-
-### **L3 – L5: Fast Stratified Blocking & Adaptive Candidate Truncation**
-* **L3 Country Stratification**: Records are partitioned into independent country buckets (`US`, `India`, `France`). Zero cross-country overhead.
-* **Multi-Channel Fast Retrieval**:
-  * *L3b Channel A*: Exact normalized name + postal/house hash.
-  * *L3c Channel C*: High-IDF token inverted index (filters out stopwords).
-  * *L3d Channel D*: Character 2-4 gram TF-IDF nearest neighbors.
-  * *(Dense retrieval BGE-M3 is decoupled into L12b stretch for fast initial execution)*.
-* **L4 Reciprocal Rank Fusion (RRF)**: Merges sparse channels into a single ranked candidate list per S1 entity.
-* **L5 Adaptive Truncation**: Coarse scoring + tiered budget allocation targeting $K \approx 5.5 \text{ to } 7.0$ candidates per entity.
-  * **Explicit Outputs**: `output/candidate_pairs.tsv` and `output/blocking_report.md` (for Amazon's candidate compactness review).
-
-### **L6 – L9: Hard Negative A/B Testing, Features & GBDT Training**
-* **L6 Training Pair Construction (A/B Test)**:
-  * Variant A: Includes hard negativedecoys (top coarse-score non-matches).
-  * Variant B: Standard candidate pool sampling.
-  * *Evaluates validation $F_{0.5}$ to select the winning pair sampler.*
-* **L7 Pairwise Feature Vector**: 27+ features covering string distances, structured address digit conflicts, retrieval RRF ranks, and structural ratios.
-* **L8 Model Training**: 5-fold cross-validated LightGBM with out-of-fold probability outputs.
-* **L9 Calibration**: Conditional isotonic probability calibration on OOF predictions.
-
-### **L10 – L13: Decision Engine, First Submission & Stretch Iterations**
-* **L10 Decision Engine**: Joint tuning of match threshold $\tau_{\text{match}}$ and singleton threshold $\tau_s$ with explicit **France fallback veto rules**.
-* **L10.5 Error Analysis & France Spot-Check**: Diagnostic error breakdown by country, source, and string length to pinpoint weaknesses.
-* **L11 Test Inference & Output Verification**: Generates `matching_results.tsv`, `candidate_pairs.tsv`, and `blocking_report.md`. Validates schema via `utils/validate_submission.py`.
-* **L11.5 First Portal Submission**: Live portal upload securing our baseline leaderboard score.
-* **L12 Targeted Stretch Iteration**: Pick ONE high-impact stretch based on L10.5 error analysis:
-  * *12a*: Phonetic Blocking (Soundex/Metaphone).
-  * *12b*: Dense Retrieval (`BGE-M3` FAISS).
-  * *12c*: Multilingual Cross-Encoder (`paraphrase-multilingual-MiniLM-L12-v2`) + Stacking Meta-Learner.
-* **L12.5 Ablation Log**: Quantitative validation proving stretch gains on validation $F_{0.5}$.
-* **L13 Final Packaging**: Assembles `<team_name>_submission.zip` with runnable source code, `requirements.txt`, and completed `Documentation_template.md`.
-
----
-
-## 📂 4. Repository Structure
+To maximize codebase readability, maintainability, and audit compliance, our repository is strictly partitioned into dedicated layer modules under `src/`:
 
 ```
-.
-├── README.md                           # Main 14-Layer documentation & pipeline architecture
-├── .gitignore                          # Git rules excluding large TSV dataset binaries
-└── business_entity_resolution/
-    ├── DATA_PROFILING_REPORT.md        # Comprehensive 26.4M record profiling report
-    ├── output/
-    │   ├── audit_summary.json          # Dataset audit counts & missing rates
-    │   ├── deep_data_profile.json      # Full statistical breakdown
-    │   ├── matching_results.tsv        # Final entity matches (Leaderboard Upload)
-    │   ├── candidate_pairs.tsv         # Blocking candidate pairs (Audit Evaluation)
-    │   └── blocking_report.md          # Candidate recall & reduction ratio report
-    └── src/
-        ├── inspect_samples.py          # Data profiling & noise pattern inspector
-        ├── audit.py                    # Streaming dataset validation & distribution checker
-        ├── deep_profile.py             # Advanced statistical profiling script
-        ├── metrics.py                  # Official macro F0.5 metric implementation
-        ├── test_core.py                # Core unit tests for metrics and data format
-        └── requirements.txt            # Pinned dependencies
+business_entity_resolution/
+├── DATA_PROFILING_REPORT.md
+├── output/                           # Output TSVs & audit reports
+│   ├── matching_results.tsv          # Leaderboard submission
+│   ├── candidate_pairs.tsv           # Candidates deliverable
+│   └── blocking_report.md            # Recall & reduction ratio report
+├── models/                           # Saved trained model checkpoints (.pkl / .bin)
+│   └── lgbm_model_fold*.pkl
+├── cache/                            # Disk cache for intermediate features (parquet)
+└── src/                              # All runnable source code
+    ├── l0_setup/                     # Layer 0: Setup, audit & data profiling
+    │   ├── audit.py
+    │   ├── deep_profile.py
+    │   └── inspect_samples.py
+    ├── l1_validation/                # Layer 1: Stratified split & F0.5 metric scorer
+    │   ├── metrics.py
+    │   └── split_generator.py
+    ├── l2_normalization/             # Layer 2: Multilingual text & address normalizer
+    │   └── normalizer.py
+    ├── l3_l5_blocking/               # Layers 3-5: Stratified blocking, RRF & adaptive truncation
+    │   └── blocking_engine.py
+    ├── l6_l8_matching/               # Layers 6-8: Hard negatives, 27+ features & LightGBM CV
+    │   ├── feature_engineering.py
+    │   └── train_lgbm.py
+    ├── l10_decision/                 # Layer 10: Joint thresholding, singleton guard & France veto
+    │   └── decision_engine.py
+    ├── requirements.txt              # Pinned environment dependencies
+    └── main.py                       # Master end-to-end pipeline runner (L0 -> L11)
 ```
 
 ---
 
-## 🛠️ 5. Quickstart & Reproduction Guide
+## 🛠️ 4. Quickstart & Reproduction Guide
 
 ### Environment Setup
 ```bash
 git clone https://github.com/1919-14/Amazon-2026-PraxisCode_X.git
 cd Amazon-2026-PraxisCode_X
 python -m pip install -r business_entity_resolution/src/requirements.txt
+```
+
+### Run End-to-End Pipeline
+```bash
+python business_entity_resolution/src/main.py
 ```
 
 ### Validate Submission Format
@@ -242,7 +213,7 @@ python DATA SET/student_resource/utils/validate_submission.py \
 
 ---
 
-## ⚖️ 6. Compliance & License
+## ⚖️ 5. Compliance & License
 
 - **Model Frameworks**: PyTorch, LightGBM, CatBoost, Hugging Face Transformers.
 - **License**: All models and code libraries utilized are strictly under **Apache 2.0 / MIT Licenses** and within parameter constraints ($\le 8\text{ Billion parameters}$).
