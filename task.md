@@ -31,8 +31,11 @@
 ## 🏗️ 14-Layer Implementation Checklist
 
 ### **[L0 - L2] Foundation & Normalization**
-- [x] **L0: Setup, Config & Schema Verification**
+- [x] **L0: Setup, Config & Schema Verification (COMPLETED ✅)**
   - [x] Verified data paths, directory schemas, and system environment.
+  - [x] Implemented `src/config.py`, `src/schemas.py`, `src/ingest.py`, `src/audit.py`, `src/utils/cache.py`, `src/main_l0.py`.
+  - [x] Generated `output/audit_train.json` and `output/audit_test.json`.
+  - [x] Initialized artifact cache directories (`artifacts/normalized/`, `artifacts/blocking/`, etc.).
 - [ ] **L1: Validation Split & Macro $F_{0.5}$ Evaluator**
   - [x] Implemented official metric in `metrics.py`.
   - [ ] Implement `src/l1_validation/split_generator.py` (80/20 stratified split by S1 ID).
