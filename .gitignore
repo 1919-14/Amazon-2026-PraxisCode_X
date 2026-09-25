@@ -1,0 +1,25 @@
+# Environment & Virtualenvs
+.venv/
+venv/
+ENV/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Dataset files (large TSV files > 100MB)
+DATA SET/student_resource/dataset/
+*.tsv
+!output/.gitkeep
+
+# macOS & System junk
+.DS_Store
+__MACOSX/
+
+# IDE files
+.vscode/
+.idea/

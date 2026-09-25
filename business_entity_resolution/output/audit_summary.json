@@ -1,0 +1,145 @@
+{
+  "scope": "Full scan",
+  "limitations": "Does not check global ID uniqueness, label referential integrity, or train/test overlap.",
+  "files": [
+    {
+      "file": "train_source1.tsv",
+      "bytes": 210069713,
+      "records_scanned": 2206821,
+      "scan_limit": null,
+      "missing_or_blank": {},
+      "bad_reference_prefixes": 0,
+      "countries": {
+        "US": 1323633,
+        "India": 883188
+      },
+      "non_ascii_rows": {
+        "business_name": 0,
+        "business_address": 554
+      }
+    },
+    {
+      "file": "train_source2.tsv",
+      "bytes": 489301488,
+      "records_scanned": 5034616,
+      "scan_limit": null,
+      "missing_or_blank": {
+        "business_address": 168967
+      },
+      "bad_reference_prefixes": 0,
+      "countries": {
+        "India": 2017799,
+        "US": 3016817
+      },
+      "non_ascii_rows": {
+        "business_name": 764608,
+        "business_address": 478453
+      }
+    },
+    {
+      "file": "train_source3.tsv",
+      "bytes": 503705637,
+      "records_scanned": 5285603,
+      "scan_limit": null,
+      "missing_or_blank": {
+        "business_address": 175916
+      },
+      "bad_reference_prefixes": 0,
+      "countries": {
+        "US": 3170056,
+        "India": 2115547
+      },
+      "non_ascii_rows": {
+        "business_name": 606737,
+        "business_address": 476588
+      }
+    },
+    {
+      "file": "train_ground_truth.tsv",
+      "bytes": 127015583,
+      "records_scanned": 2206821,
+      "scan_limit": null,
+      "missing_or_blank": {
+        "matched_entity_ids": 123247
+      },
+      "bad_reference_prefixes": 0,
+      "match_count_histogram": {
+        "0": 123247,
+        "1": 119157,
+        "2": 375212,
+        "3": 530841,
+        "4": 484115,
+        "5": 321957,
+        "6": 164868,
+        "7": 63968,
+        "8": 18680,
+        "9": 4205,
+        "10": 534,
+        "11": 37
+      },
+      "positive_pairs": 7638365,
+      "singleton_fraction": 0.05584820880352326,
+      "all_empty_macro_f05": 0.05584820880352326,
+      "target_prefix_counts": {
+        "S2": 3693619,
+        "S3": 3944746
+      },
+      "rows_with_duplicate_match_ids": 0
+    },
+    {
+      "file": "test_source1.tsv",
+      "bytes": 175022086,
+      "records_scanned": 1732544,
+      "scan_limit": null,
+      "missing_or_blank": {},
+      "bad_reference_prefixes": 0,
+      "countries": {
+        "US": 663106,
+        "France": 259452,
+        "India": 809986
+      },
+      "non_ascii_rows": {
+        "business_name": 40789,
+        "business_address": 73800
+      }
+    },
+    {
+      "file": "test_source2.tsv",
+      "bytes": 509456422,
+      "records_scanned": 4887273,
+      "scan_limit": null,
+      "missing_or_blank": {
+        "business_address": 129408
+      },
+      "bad_reference_prefixes": 0,
+      "countries": {
+        "India": 2312565,
+        "France": 703378,
+        "US": 1871330
+      },
+      "non_ascii_rows": {
+        "business_name": 928158,
+        "business_address": 720665
+      }
+    },
+    {
+      "file": "test_source3.tsv",
+      "bytes": 506002772,
+      "records_scanned": 5082316,
+      "scan_limit": null,
+      "missing_or_blank": {
+        "business_address": 136098
+      },
+      "bad_reference_prefixes": 0,
+      "countries": {
+        "India": 2405000,
+        "France": 731615,
+        "US": 1945701
+      },
+      "non_ascii_rows": {
+        "business_name": 737515,
+        "business_address": 729222
+      }
+    }
+  ]
+}
