@@ -1,0 +1,287 @@
+{
+  "train": {
+    "source1": {
+      "country_distribution": {
+        "US": 179618,
+        "India": 120382
+      },
+      "name_stats": {
+        "total_records": 300000,
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "char_len_mean": 24.04,
+        "char_len_median": 24.0,
+        "char_len_max": 81,
+        "word_count_mean": 3.55,
+        "word_count_median": 4.0
+      },
+      "address_stats": {
+        "total_records": 300000,
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "char_len_mean": 52.07,
+        "char_len_median": 41.0,
+        "char_len_max": 223,
+        "word_count_mean": 8.04,
+        "word_count_median": 7.0
+      },
+      "script_distribution": {
+        "Latin (English/French)": 20000
+      },
+      "top_legal_suffixes": {
+        "NONE/OTHER": 7357,
+        "PRIVATE LIMITED": 3921,
+        "LLC": 3198,
+        "INC": 2244,
+        "PVT LTD": 823,
+        "LIMITED": 820,
+        "LTD": 459,
+        "LLP": 369
+      }
+    },
+    "source2": {
+      "country_distribution": {
+        "US": 179464,
+        "India": 120536
+      },
+      "name_stats": {
+        "total_records": 300000,
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "char_len_mean": 25.08,
+        "char_len_median": 25.0,
+        "char_len_max": 104,
+        "word_count_mean": 3.49,
+        "word_count_median": 4.0
+      },
+      "address_stats": {
+        "total_records": 300000,
+        "missing_count": 9986,
+        "missing_pct": 3.33,
+        "char_len_mean": 46.31,
+        "char_len_median": 37.0,
+        "char_len_max": 204,
+        "word_count_mean": 7.29,
+        "word_count_median": 6.0
+      },
+      "script_distribution": {
+        "Latin (English/French)": 18164,
+        "Other": 360,
+        "Devanagari (Hindi)": 1042,
+        "Kannada": 145,
+        "Telugu": 160,
+        "Tamil": 129
+      },
+      "top_legal_suffixes": {
+        "NONE/OTHER": 10872,
+        "LLC": 2068,
+        "INC": 1597,
+        "LIMITED": 1295,
+        "LTD": 1258,
+        "PRIVATE LIMITED": 829,
+        "CO": 576,
+        "CORP": 536
+      }
+    },
+    "source3": {
+      "country_distribution": {
+        "US": 179465,
+        "India": 120535
+      },
+      "name_stats": {
+        "total_records": 300000,
+        "missing_count": 1,
+        "missing_pct": 0.0,
+        "char_len_mean": 25.21,
+        "char_len_median": 25.0,
+        "char_len_max": 81,
+        "word_count_mean": 3.53,
+        "word_count_median": 4.0
+      },
+      "address_stats": {
+        "total_records": 300000,
+        "missing_count": 9875,
+        "missing_pct": 3.29,
+        "char_len_mean": 46.76,
+        "char_len_median": 42.0,
+        "char_len_max": 234,
+        "word_count_mean": 7.18,
+        "word_count_median": 6.0
+      },
+      "script_distribution": {
+        "Latin (English/French)": 19025,
+        "Other": 158,
+        "Devanagari (Hindi)": 592,
+        "Telugu": 86,
+        "Kannada": 74,
+        "Tamil": 65
+      },
+      "top_legal_suffixes": {
+        "NONE/OTHER": 10221,
+        "LLC": 2194,
+        "LIMITED": 1588,
+        "INC": 1578,
+        "LTD": 1232,
+        "PRIVATE LIMITED": 1101,
+        "CORP": 565,
+        "CO": 555
+      }
+    }
+  },
+  "test": {
+    "source1": {
+      "country_distribution": {
+        "India": 140307,
+        "US": 115019,
+        "France": 44674
+      },
+      "name_stats": {
+        "total_records": 300000,
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "char_len_mean": 23.85,
+        "char_len_median": 24.0,
+        "char_len_max": 92,
+        "word_count_mean": 3.52,
+        "word_count_median": 4.0
+      },
+      "address_stats": {
+        "total_records": 300000,
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "char_len_mean": 57.15,
+        "char_len_median": 51.0,
+        "char_len_max": 240,
+        "word_count_mean": 8.58,
+        "word_count_median": 8.0
+      },
+      "script_distribution": {
+        "Latin (English/French)": 20000
+      },
+      "top_legal_suffixes": {
+        "NONE/OTHER": 6504,
+        "PRIVATE LIMITED": 4552,
+        "LLC": 2074,
+        "INC": 1351,
+        "PVT LTD": 1045,
+        "LIMITED": 970,
+        "SARL": 852,
+        "SAS": 624
+      }
+    },
+    "source2": {
+      "country_distribution": {
+        "India": 141768,
+        "US": 114719,
+        "France": 43513
+      },
+      "name_stats": {
+        "total_records": 300000,
+        "missing_count": 6,
+        "missing_pct": 0.0,
+        "char_len_mean": 25.7,
+        "char_len_median": 25.0,
+        "char_len_max": 87,
+        "word_count_mean": 3.59,
+        "word_count_median": 4.0
+      },
+      "address_stats": {
+        "total_records": 300000,
+        "missing_count": 7956,
+        "missing_pct": 2.65,
+        "char_len_mean": 50.38,
+        "char_len_median": 43.0,
+        "char_len_max": 226,
+        "word_count_mean": 7.79,
+        "word_count_median": 7.0
+      },
+      "script_distribution": {
+        "Latin (English/French)": 17725,
+        "Devanagari (Hindi)": 1321,
+        "Telugu": 194,
+        "Other": 420,
+        "Kannada": 196,
+        "Tamil": 144
+      },
+      "top_legal_suffixes": {
+        "NONE/OTHER": 10543,
+        "LIMITED": 1580,
+        "LTD": 1361,
+        "LLC": 1276,
+        "INC": 1027,
+        "PRIVATE LIMITED": 997,
+        "SARL": 596,
+        "CO": 512
+      }
+    },
+    "source3": {
+      "country_distribution": {
+        "India": 141842,
+        "US": 115266,
+        "France": 42892
+      },
+      "name_stats": {
+        "total_records": 300000,
+        "missing_count": 3,
+        "missing_pct": 0.0,
+        "char_len_mean": 25.64,
+        "char_len_median": 25.0,
+        "char_len_max": 86,
+        "word_count_mean": 3.59,
+        "word_count_median": 4.0
+      },
+      "address_stats": {
+        "total_records": 300000,
+        "missing_count": 8015,
+        "missing_pct": 2.67,
+        "char_len_mean": 48.72,
+        "char_len_median": 43.0,
+        "char_len_max": 235,
+        "word_count_mean": 7.51,
+        "word_count_median": 7.0
+      },
+      "script_distribution": {
+        "Latin (English/French)": 18761,
+        "Other": 232,
+        "Devanagari (Hindi)": 693,
+        "Telugu": 116,
+        "Kannada": 100,
+        "Tamil": 98
+      },
+      "top_legal_suffixes": {
+        "NONE/OTHER": 9726,
+        "LIMITED": 1843,
+        "LLC": 1410,
+        "PRIVATE LIMITED": 1344,
+        "LTD": 1336,
+        "INC": 982,
+        "SARL": 581,
+        "PVT LTD": 478
+      }
+    }
+  },
+  "ground_truth": {
+    "total_s1_entities": 2206821,
+    "singleton_count": 123247,
+    "singleton_pct": 5.58,
+    "total_matches": 7638365,
+    "avg_matches_per_s1": 3.46,
+    "median_matches_per_s1": 3.0,
+    "s2_matches_total": 3693619,
+    "s3_matches_total": 3944746,
+    "histogram": {
+      "0": 123247,
+      "1": 119157,
+      "2": 375212,
+      "3": 530841,
+      "4": 484115,
+      "5": 321957,
+      "6": 164868,
+      "7": 63968,
+      "8": 18680,
+      "9": 4205,
+      "10": 534,
+      "11": 37
+    }
+  }
+}
