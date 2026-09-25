@@ -1,0 +1,14 @@
+{
+  "total_s1_entities": 2206821,
+  "train_id_count": 1765457,
+  "val_id_count": 441364,
+  "actual_val_fraction": 0.1999999093718974,
+  "full_singleton_rate": 0.05584820880352326,
+  "val_singleton_rate": 0.05620984040383901,
+  "avg_matches_per_non_singleton": 3.665741618753826,
+  "baseline_empty_f05": 0.05620984040383901,
+  "baseline_all_match_dummy_f05": 0.0,
+  "baseline_all_match_no_singleton_filter": 0.943790159596161,
+  "baseline_uncalibrated_pool_f05": 0.6304901507930308,
+  "peak_ram_mb": 1849.62890625
+}

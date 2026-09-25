@@ -51,9 +51,7 @@ def load_split(split: str) -> dict[str, Any]:
 def parse_ground_truth(gt_df: pd.DataFrame, s1_df: Optional[pd.DataFrame] = None) -> dict[str, set[str]]:
     """Parse ground truth DataFrame into mapping of reference entity ID to set of matching candidate IDs."""
     gt_map: dict[str, set[str]] = {}
-    for _, row in gt_df.iterrows():
-        s1_id = row["source1_entity_id"]
-        raw_matches = row["matched_entity_ids"]
+    for s1_id, raw_matches in gt_df[["source1_entity_id", "matched_entity_ids"]].itertuples(index=False, name=None):
         if raw_matches:
             matches = {m.strip() for m in raw_matches.split(",") if m.strip()}
         else:

@@ -36,9 +36,13 @@
   - [x] Implemented `src/config.py`, `src/schemas.py`, `src/ingest.py`, `src/audit.py`, `src/utils/cache.py`, `src/main_l0.py`.
   - [x] Generated `output/audit_train.json` and `output/audit_test.json`.
   - [x] Initialized artifact cache directories (`artifacts/normalized/`, `artifacts/blocking/`, etc.).
-- [ ] **L1: Validation Split & Macro $F_{0.5}$ Evaluator**
-  - [x] Implemented official metric in `metrics.py`.
-  - [ ] Implement `src/l1_validation/split_generator.py` (80/20 stratified split by S1 ID).
+- [x] **L1: Validation Split & Macro $F_{0.5}$ Evaluator (COMPLETED ✅)**
+  - [x] Implemented official macro F0.5 metric in `l1_validation/metrics.py` (`f_beta`, `precision_recall`, `macro_f05`, `evaluate_with_thresholds`).
+  - [x] Implemented grouped 80/20 split in `l1_validation/split_generator.py` (seed=42, grouped by S1 ID, no country stratification).
+  - [x] Saved split artifacts: `artifacts/splits/train_ids.json` (1,765,457) & `val_ids.json` (441,364).
+  - [x] All 8 unit tests PASS in `l1_validation/unit_tests.py` (exit code 0).
+  - [x] Ran `src/main_l1.py` — cardinality + baseline report confirmed; Peak RAM: 1,849 MB.
+  - [x] Baseline F0.5 established: empty=0.0562 | uncalibrated pool (K≈5.5)=0.6305.
 - [ ] **L2: Normalization Engine (`src/l2_normalization/normalizer.py`)**
   - [ ] Unicode NFKC normalization + accent stripping (`réseau` $\rightarrow$ `reseau`).
   - [ ] Multilingual script detection & transliteration flags (Hindi, Tamil, Kannada, Telugu).
