@@ -36,19 +36,11 @@ From `train_ground_truth.tsv`, there are **7,638,365 positive matching pairs** a
 #### Match Count Histogram (Cardinality Distribution)
 
 ```mermaid
-barChart
-    title Ground Truth Match Count Distribution per S1 Entity
-    x-axis Match Count
-    y-axis Frequency (Number of S1 Entities)
-    "0 (Singleton)": 123247
-    "1 Match": 119157
-    "2 Matches": 375212
-    "3 Matches": 530841
-    "4 Matches": 484115
-    "5 Matches": 321957
-    "6 Matches": 164868
-    "7 Matches": 63968
-    "8+ Matches": 23456
+xychart-beta
+    title "Ground Truth Match Count Distribution per S1 Entity"
+    x-axis ["0 (Singleton)", "1 Match", "2 Matches", "3 Matches", "4 Matches", "5 Matches", "6 Matches", "7 Matches", "8+ Matches"]
+    y-axis "S1 Entity Count" 0 --> 600000
+    bar [123247, 119157, 375212, 530841, 484115, 321957, 164868, 63968, 23456]
 ```
 
 | Match Count | S1 Entity Count | Percentage | Cumulative % |
