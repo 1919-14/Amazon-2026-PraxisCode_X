@@ -1,105 +1,119 @@
-"""Stream the provided TSV files without loading the full dataset into RAM."""
+"""Data quality auditing, schema consistency, and ground truth cardinality verification."""
 
-import argparse
-import csv
 import json
-import sys
-from collections import Counter
 from pathlib import Path
 from typing import Any
+import pandas as pd
+
+from config import PATH_OUTPUT_DIR
 
 
-RECORD_FIELDS = ["entity_id", "business_name", "business_address", "country"]
-LABEL_FIELDS = ["source1_entity_id", "matched_entity_ids"]
-
-
-def audit_file(path: Path, limit: int = 0) -> dict[str, Any]:
-    """Count records, missing fields, scripts, countries, and label cardinalities."""
-    if limit < 0:
-        raise ValueError("limit must be nonnegative")
-    is_labels = path.name == "train_ground_truth.tsv"
-    expected_fields = LABEL_FIELDS if is_labels else RECORD_FIELDS
-    countries: Counter[str] = Counter()
-    missing: Counter[str] = Counter()
-    cardinality: Counter[int] = Counter()
-    prefix_counts: Counter[str] = Counter()
-    non_ascii: Counter[str] = Counter()
-    records = 0
-    bad_prefixes = 0
-    repeated_ids_in_lists = 0
-    expected_prefix = "S1-" if is_labels else "S" + path.stem[-1] + "-"
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
-        if reader.fieldnames != expected_fields:
-            raise ValueError(f"{path}: unexpected header {reader.fieldnames}")
-        for record in reader:
-            if None in record or any(value is None for value in record.values()):
-                raise ValueError(f"{path}: malformed record near line {reader.line_num}")
-            records += 1
-            for field in expected_fields:
-                if not record[field].strip():
-                    missing[field] += 1
-            reference = record[expected_fields[0]]
-            bad_prefixes += not reference.startswith(expected_prefix)
-            if is_labels:
-                matches = record["matched_entity_ids"].split(",") if record["matched_entity_ids"] else []
-                cardinality[len(matches)] += 1
-                repeated_ids_in_lists += len(matches) != len(set(matches))
-                for match in matches:
-                    prefix_counts[match.split("-", 1)[0]] += 1
-            else:
-                countries[record["country"]] += 1
-                for field in ("business_name", "business_address"):
-                    non_ascii[field] += not record[field].isascii()
-            if limit and records >= limit:
-                break
-    result: dict[str, Any] = {
-        "file": path.name,
-        "bytes": path.stat().st_size,
-        "records_scanned": records,
-        "scan_limit": limit or None,
-        "missing_or_blank": dict(missing),
-        "bad_reference_prefixes": bad_prefixes,
+def audit(df_dict: dict[str, Any], split_name: str) -> dict[str, Any]:
+    """Compute and log data quality metrics, missing value rates, GT distributions, and country consistency."""
+    report: dict[str, Any] = {
+        "split": split_name,
+        "files": {},
+        "missing_pct": {},
+        "country_distribution": {},
     }
-    if is_labels:
-        result.update({
-            "match_count_histogram": dict(sorted(cardinality.items())),
-            "positive_pairs": sum(count * frequency for count, frequency in cardinality.items()),
-            "singleton_fraction": cardinality[0] / records if records else None,
-            "all_empty_macro_f05": cardinality[0] / records if records else None,
-            "target_prefix_counts": dict(prefix_counts),
-            "rows_with_duplicate_match_ids": repeated_ids_in_lists,
-        })
-    else:
-        result.update({"countries": dict(countries), "non_ascii_rows": dict(non_ascii)})
-    return result
 
+    # Audit individual source files
+    for src_name in ["s1", "s2", "s3"]:
+        df: pd.DataFrame = df_dict[src_name]
+        row_count = len(df)
+        report["files"][src_name] = row_count
+        report["country_distribution"][src_name] = df["country"].value_counts().to_dict()
 
-def main() -> None:
-    """Write a reproducible JSON profile; report progress on stderr."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--limit", type=int, default=0, help="Rows per file; 0 scans all rows")
-    args = parser.parse_args()
-    if args.limit < 0:
-        parser.error("--limit must be nonnegative")
-    results = []
-    for split in ("train", "test"):
-        names = [f"{split}_source{source}.tsv" for source in (1, 2, 3)]
-        if split == "train":
-            names.append("train_ground_truth.tsv")
-        for name in names:
-            print(f"Scanning {split}/{name}", file=sys.stderr, flush=True)
-            results.append(audit_file(args.data_dir / split / name, args.limit))
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps({
-        "scope": "Full scan" if not args.limit else "Prefix sample, not a random sample",
-        "limitations": "Does not check global ID uniqueness, label referential integrity, or train/test overlap.",
-        "files": results,
-    }, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-    print(f"Wrote {args.output}", flush=True)
+        # Missing percentage per column (empty string)
+        missing_dict: dict[str, float] = {}
+        for col in df.columns:
+            missing_count = (df[col].astype(str).str.strip() == "").sum()
+            missing_dict[col] = float(round((missing_count / row_count) * 100, 4)) if row_count > 0 else 0.0
+        report["missing_pct"][src_name] = missing_dict
 
+    # Audit ground truth if present
+    gt_df = df_dict.get("gt")
+    if gt_df is not None:
+        gt_rows = len(gt_df)
+        report["files"]["gt"] = gt_rows
 
-if __name__ == "__main__":
-    main()
+        match_lists = gt_df["matched_entity_ids"].astype(str).apply(
+            lambda x: [m.strip() for m in x.split(",") if m.strip()]
+        )
+        match_counts = match_lists.apply(len)
+
+        c0 = int((match_counts == 0).sum())
+        c1 = int((match_counts == 1).sum())
+        c2_plus = int((match_counts >= 2).sum())
+        total_matches = int(match_counts.sum())
+        singleton_rate = float(round(c0 / gt_rows, 6)) if gt_rows > 0 else 0.0
+
+        report["ground_truth"] = {
+            "total_records": gt_rows,
+            "total_positive_pairs": total_matches,
+            "singleton_count": c0,
+            "singleton_rate": singleton_rate,
+            "single_match_count": c1,
+            "multi_match_count": c2_plus,
+            "match_count_summary": {
+                "0": c0,
+                "1": c1,
+                "2+": c2_plus,
+            },
+        }
+
+        # Country Consistency Check
+        s1_country_map = dict(zip(df_dict["s1"]["entity_id"], df_dict["s1"]["country"]))
+        s2_country_map = dict(zip(df_dict["s2"]["entity_id"], df_dict["s2"]["country"]))
+        s3_country_map = dict(zip(df_dict["s3"]["entity_id"], df_dict["s3"]["country"]))
+
+        total_checked_pairs = 0
+        mismatched_pairs = 0
+
+        for s1_id, matches in zip(gt_df["source1_entity_id"], match_lists):
+            s1_country = s1_country_map.get(s1_id)
+            for m in matches:
+                total_checked_pairs += 1
+                cand_country = s2_country_map.get(m) if m.startswith("S2-") else s3_country_map.get(m)
+                if cand_country is not None and s1_country != cand_country:
+                    mismatched_pairs += 1
+
+        mismatch_rate = float(round(mismatched_pairs / total_checked_pairs, 6)) if total_checked_pairs > 0 else 0.0
+        report["ground_truth"]["country_consistency"] = {
+            "pairs_checked": total_checked_pairs,
+            "mismatched_pairs": mismatched_pairs,
+            "mismatch_rate": mismatch_rate,
+            "flag_high_mismatch": bool(mismatch_rate > 0.05),
+        }
+
+    # Save JSON report
+    PATH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = PATH_OUTPUT_DIR / f"audit_{split_name}.json"
+    with out_path.open("w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+
+    # Print Console Summary
+    print(f"\n{'=' * 60}")
+    print(f"📊 DATA AUDIT SUMMARY: {split_name.upper()}")
+    print(f"{'=' * 60}")
+    print(f"File Row Counts: {report['files']}")
+    print(f"Country Distribution: {report['country_distribution']}")
+    print(f"Missing Field Rates (%): {report['missing_pct']}")
+
+    if "ground_truth" in report:
+        gt_rep = report["ground_truth"]
+        print("\nGround Truth Linkage Stats:")
+        print(f"  • Total S1 Records: {gt_rep['total_records']:,}")
+        print(f"  • Total Positive Pairs: {gt_rep['total_positive_pairs']:,}")
+        print(f"  • Singletons (0 matches): {gt_rep['singleton_count']:,} ({gt_rep['singleton_rate'] * 100:.2f}%)")
+        print(f"  • 1 Match: {gt_rep['single_match_count']:,} | 2+ Matches: {gt_rep['multi_match_count']:,}")
+        cc = gt_rep["country_consistency"]
+        print(f"  • Country Mismatch Rate: {cc['mismatch_rate'] * 100:.4f}% ({cc['mismatched_pairs']} / {cc['pairs_checked']})")
+        if cc["flag_high_mismatch"]:
+            print("  ⚠️ WARNING: Country mismatch rate is above 5%!")
+        else:
+            print("  ✅ Country consistency check PASSED (clean partition).")
+
+    print(f"Saved audit report: {out_path}")
+    print(f"{'=' * 60}\n")
+    return report

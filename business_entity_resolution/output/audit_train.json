@@ -1,0 +1,62 @@
+{
+  "split": "train",
+  "files": {
+    "s1": 2206821,
+    "s2": 5034616,
+    "s3": 5285603,
+    "gt": 2206821
+  },
+  "missing_pct": {
+    "s1": {
+      "entity_id": 0.0,
+      "business_name": 0.0,
+      "business_address": 0.0,
+      "country": 0.0
+    },
+    "s2": {
+      "entity_id": 0.0,
+      "business_name": 0.0,
+      "business_address": 3.3561,
+      "country": 0.0
+    },
+    "s3": {
+      "entity_id": 0.0,
+      "business_name": 0.0,
+      "business_address": 3.3282,
+      "country": 0.0
+    }
+  },
+  "country_distribution": {
+    "s1": {
+      "US": 1323633,
+      "India": 883188
+    },
+    "s2": {
+      "US": 3016817,
+      "India": 2017799
+    },
+    "s3": {
+      "US": 3170056,
+      "India": 2115547
+    }
+  },
+  "ground_truth": {
+    "total_records": 2206821,
+    "total_positive_pairs": 7638365,
+    "singleton_count": 123247,
+    "singleton_rate": 0.055848,
+    "single_match_count": 119157,
+    "multi_match_count": 1964417,
+    "match_count_summary": {
+      "0": 123247,
+      "1": 119157,
+      "2+": 1964417
+    },
+    "country_consistency": {
+      "pairs_checked": 7638365,
+      "mismatched_pairs": 0,
+      "mismatch_rate": 0.0,
+      "flag_high_mismatch": false
+    }
+  }
+}
