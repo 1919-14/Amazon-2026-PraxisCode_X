@@ -12,9 +12,18 @@ __pycache__/
 .pytest_cache/
 
 # Dataset files (large TSV files > 100MB)
-DATA SET/student_resource/dataset/
+DATA SET/
 *.tsv
 !output/.gitkeep
+
+# Artifacts & Parquet files
+artifacts/
+business_entity_resolution/artifacts/
+*.parquet
+
+# Directory junctions / shortcuts at root
+/src
+/artifacts
 
 # macOS & System junk
 .DS_Store
@@ -23,3 +32,4 @@ __MACOSX/
 # IDE files
 .vscode/
 .idea/
+
