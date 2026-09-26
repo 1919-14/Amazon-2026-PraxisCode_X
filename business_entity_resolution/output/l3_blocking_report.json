@@ -1,0 +1,17 @@
+{
+  "config": {
+    "split": "test",
+    "refs": "all",
+    "countries": [
+      "france"
+    ],
+    "topk": 50,
+    "char_channel": true,
+    "max_candidates": null,
+    "max_refs": null
+  },
+  "overall": {},
+  "per_country": {},
+  "n_references": 259452,
+  "elapsed_seconds": 1180.41
+}

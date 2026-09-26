@@ -20,11 +20,24 @@ def lowercase(s: str) -> str:
     return s.lower()
 
 
+def _should_keep(ch: str) -> bool:
+    """Return True for characters to preserve in normalized text."""
+    if ch.isspace():
+        return True
+    if ch.isalnum():
+        return True
+    # Preserve Unicode combining marks (Mn, Mc, Me) so Devanagari matras,
+    # Tamil vowel signs, etc. are not stripped as punctuation.
+    if unicodedata.category(ch).startswith("M"):
+        return True
+    return False
+
+
 def normalize_punctuation(s: str) -> str:
-    """Expand '&', remove non-alphanumeric chars, collapse whitespace."""
+    """Expand '&', remove non-alphanumeric/non-combining chars, collapse whitespace."""
     s = s.replace("&", " and ")
-    # Remove all chars that are not alphanumeric, whitespace, or accented Latin letters
-    s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)
+    # Replace any character not kept by _should_keep with a space
+    s = "".join(ch if _should_keep(ch) else " " for ch in s)
     # Collapse runs of whitespace
     s = re.sub(r"\s+", " ", s)
     return s.strip()

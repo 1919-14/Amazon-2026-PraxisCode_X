@@ -55,48 +55,75 @@
 ---
 
 ### **[L3 - L5] Fast Country-Stratified Blocking & Truncation**
-- [ ] **L3: Country-Stratified Multi-Channel Blocking Engine (`src/l3_l5_blocking/`)**
-  - [ ] L3a: Country bucket assignment (`US`, `India`, `France`).
-  - [ ] L3b: Channel A — Exact normalized name + postal/house hash index.
-  - [ ] L3c: Channel C — High-IDF token inverted index (prunes generic stopwords).
-  - [ ] L3d: Channel D — Character 2-4 gram TF-IDF nearest neighbors.
-  - [ ] L3e: Per-channel recall measurement on validation split.
-- [ ] **L4: Reciprocal Rank Fusion (RRF)**
-  - [ ] Implement RRF to merge sparse channels into a unified ranked candidate list per S1.
-- [ ] **L5: Adaptive Candidate Truncation**
-  - [ ] Coarse scoring + tiered candidate budget allocation ($K \approx 5.5 \text{ to } 7.0$).
-  - [ ] Generate `output/candidate_pairs.tsv` (judged deliverable).
-  - [ ] Generate `output/blocking_report.md` (recall & reduction ratio report).
+- [x] **L3: Country-Stratified Multi-Channel Blocking Engine (`src/l3_l5_blocking/`) (COMPLETED ✅)**
+  - [x] L3a: Country bucket assignment (`US`, `India`, `France`) — `buckets.py`.
+  - [x] L3b: Channel A — Exact normalized name + postal/house hash index — `channels.py::ExactKeyChannel`.
+  - [x] L3c: Channel C — High-IDF token inverted index (prunes generic tokens) — `channels.py::SparseTfidfChannel`.
+  - [x] L3d: Channel D — Character 2-4 gram TF-IDF nearest neighbors — `channels.py::SparseTfidfChannel`.
+  - [x] L3e: Per-channel recall measurement on validation split — `recall.py` (union recall 92.6% on a 15K-ref / 205K-pool real-data check).
+  - [x] Engine + entry point (`engine.py`, `main_l3.py`) + 8 unit tests PASS.
+- [x] **L4: Reciprocal Rank Fusion (RRF) (COMPLETED ✅)**
+  - [x] Implemented `rrf.py` — `rrf_scores`, `fuse`, `ranked_ids` (configurable weights + smoothing constant `k`).
+  - [x] Merges channels A/C/D into one ranked candidate list per S1, preserving the union (no recall loss).
+  - [x] `main_l4.py` reads L3 artifacts, tunes `k` over `RRF_K_GRID` against validation via recall@N, writes fused `l4_*.parquet` for L5.
+  - [x] 5 RRF unit tests PASS (total package tests: 13).
+- [x] **L5: Adaptive Candidate Truncation (COMPLETED ✅)**
+  - [x] Implemented `truncate.py` — `coarse_score` (normalized RRF + channel agreement + exact-key hit) and `adaptive_truncate` (ratio threshold + k_min/k_max clamp).
+  - [x] `main_l5.py` tunes the retention ratio to land average K in the `[5.5, 7.0]` band (got avg K = 6.44 on a smoke run).
+  - [x] Generates `output/candidate_pairs.tsv` (test) / `candidate_pairs_val.tsv` (dev) — judged deliverable, validated TSV format.
+  - [x] Generates `output/blocking_report.md` + `l5_blocking_report.json` (recall & reduction ratio report).
+  - [x] 4 L5 unit tests PASS (total package tests: 17).
 
 ---
 
 ### **[L6 - L9] Hard Negative Mining, Features & GBDT Training**
-- [ ] **L6: Training Pair Construction & Hard Negative A/B Test (`src/l6_l8_matching/`)**
-  - [ ] Build positive / hard negative / easy negative pair sampler (1 pos : 3 hard neg : 2 easy neg).
-  - [ ] A/B test Variant A (with hard negs) vs Variant B (without hard negs) on validation $F_{0.5}$.
-- [ ] **L7: Pairwise Feature Engineering Engine**
-  - [ ] Name block (8 features: Levenshtein, Jaro-Winkler, Token Sort/Set, Char 3-gram, IDF overlap, legal suffix match).
-  - [ ] Address block (9 features: house num exact, street token Jaccard, postal exact, postal 3-digit prefix, city overlap, `digit_string_conflict` boolean).
-  - [ ] Retrieval signal block (6 features: exact key hit, RRF rank, retriever agreement count).
-  - [ ] Structural block (4 features: same country, length ratios, missing address flags).
-- [ ] **L8: GBDT Matcher Model Training**
-  - [ ] Implement 5-fold cross-validated LightGBM (`train_lgbm.py`) with out-of-fold probability outputs.
-- [ ] **L9: Calibration (Conditional)**
-  - [ ] Evaluate conditional isotonic calibration on OOF predictions.
+- [x] **L6: Training Pair Construction & Hard Negative A/B Test (`src/l6_l8_matching/`) (COMPLETED ✅)**
+  - [x] Implemented `pairs.py` — positive / hard-negative / easy-negative sampler (1 pos : 3 hard : 2 easy; singletons get fixed negatives) + streaming Parquet writer in `main_l6.py`.
+  - [x] Produces `artifacts/train_pairs/variant_a.parquet` (pos+hard+easy) and `variant_b.parquet` (pos+easy) + `output/l6_pairs_report.json`.
+  - [x] 5 L6 unit tests PASS; streaming parquet schema/dtypes verified.
+  - [x] A/B test Variant A vs B on out-of-fold macro $F_{0.5}$ — executed in L8 (`main_l8.py`).
+- [x] **L7: Pairwise Feature Engineering Engine (COMPLETED ✅)**
+  - [x] Name block (8): `name_ratio`, `name_jaro_winkler`, `name_token_sort`, `name_token_set`, `name_char3_jaccard`, `name_token_jaccard`, `name_idf_overlap`, `name_legal_suffix_match`.
+  - [x] Address block (9): `addr_house_exact`, `addr_street_jaccard`, `addr_postal_exact`, `addr_postal_prefix3`, `addr_city_exact`, `addr_state_match`, `addr_token_jaccard`, `addr_char3_jaccard`, `addr_digit_conflict`.
+  - [x] Retrieval block (6): `ret_exact_key_hit`, `ret_rrf_score`, `ret_retriever_agreement`, `ret_candidate_rank`, `ret_retrieved`, `ret_rank_inverse` (RRF/agreement optionally joined from L3/L4).
+  - [x] Structural block (4): `struct_same_country`, `struct_name_len_ratio`, `struct_addr_len_ratio`, `struct_addr_missing_xor`.
+  - [x] Implemented `features.py` + `main_l7.py` (streaming Parquet); 5 L7 unit tests PASS (total package tests: 10).
+- [x] **L8: GBDT Matcher Model Training (COMPLETED ✅)**
+  - [x] Implemented `model.py` — grouped 5-fold LightGBM (`GroupKFold` on `s1_id` prevents entity leakage) with OOF probabilities + `train_full` export.
+  - [x] `main_l8.py` trains each variant, tunes `(tau_match, tau_s)` with the L1 scorer on OOF scores, and exports `artifacts/models/oof_<v>.parquet` + `lgbm_variant_<v>.txt`.
+  - [x] A/B comparison of Variant A vs B on out-of-fold macro F0.5 → `output/l8_model_report.json`.
+  - [x] 1 L8 unit test PASS (total package tests: 11).
+- [x] **L9: Calibration (Conditional) (COMPLETED ✅)**
+  - [x] Implemented `calibration.py` — reliability diagnostics (`brier`, `log_loss`, `reliability_curve`, `ece`), grouped cross-validated isotonic (`calibrate_grouped`) and knot serialization for inference.
+  - [x] `main_l9.py` evaluates `none` / `global` / `per_country` on **retrieved** OOF pairs and adopts a calibrator only when it lowers ECE by `--min-ece-improvement` (default 0.005) **and** does not degrade best macro $F_{0.5}$.
+  - [x] Exports `artifacts/models/oof_calibrated_<v>.parquet`, `artifacts/models/isotonic_<v>.json`, `output/l9_calibration_report.json/.md`.
+  - [x] 4 L9 unit tests PASS (total package tests: 15).
+  - [x] **Key insight**: isotonic regression is monotonic → ranking-preserving → cannot change the best achievable macro $F_{0.5}$; calibration is adopted purely for probability reliability (feeds per-country decision rules / stacking).
 
 ---
 
 ### **[L10 - L13] Decision Engine, Submission & Packaging**
-- [ ] **L10: Decision Engine & Singleton Protection (`src/l10_decision/`)**
-  - [ ] Joint grid search for match threshold $\tau_{\text{match}}$ and singleton threshold $\tau_s$.
-  - [ ] Singleton guard: if max candidate score $<\tau_s$, predict empty list.
-  - [ ] France fallback veto rule for open-set test entities.
-- [ ] **L10.5: Diagnostic Error Analysis & France Spot-Check**
-  - [ ] Run error breakdown by country, source file, and name/address length.
-- [ ] **L11: Test Inference & Validation**
-  - [ ] Execute full pipeline on test set (`test_source1/2/3.tsv`).
-  - [ ] Generate `output/matching_results.tsv` and `output/candidate_pairs.tsv`.
-  - [ ] Pass `python DATA SET/student_resource/utils/validate_submission.py`.
+- [x] **L10: Decision Engine & Singleton Protection (`src/l10_decision/`) (COMPLETED ✅)**
+  - [x] `decision.py` — production copy of the scorer's rule (`apply_decision_rule`) so tuned thresholds transfer without a reimplementation gap.
+  - [x] Joint grid search for match threshold $\tau_{\text{match}}$ and singleton threshold $\tau_s$ (`tune_thresholds`, grid in `config.TAU_MATCH_GRID` / `TAU_S_GRID`).
+  - [x] Singleton guard: if max candidate score $<\tau_s$, predict empty list.
+  - [x] France fallback veto rule for open-set test entities: boosted $\tau_s$ (`L10_OPEN_SET_TAU_BOOST`) + minimum-confidence veto (`L10_OPEN_SET_VETO_MIN_CONFIDENCE`).
+  - [x] `main_l10.py` consumes L9-calibrated (or L8) OOF scores, applies the rule, writes `output/matching_results[_val].tsv` + `output/l10_decision_report.json/.md`.
+  - [x] 11 L10 unit tests PASS (rule-vs-scorer parity, singleton guard, margin/`tau_match` interaction, open-set veto + boost, TSV format).
+- [x] **L10.5: Diagnostic Error Analysis & France Spot-Check (COMPLETED ✅)**
+  - [x] `l10_diagnostics/diagnostics.py` — per-entity error classes (`true_singleton` / `false_positive` / `miss` / `exact` / `partial`) with F0.5 mass, plus aggregation helpers.
+  - [x] Error breakdown by **country**, **matched-source composition** (S2 / S3 / both), **name length**, **address length / missing-address**, and **script**.
+  - [x] France spot-check for open-set test entities: volume, top-score quantiles, and the highest-confidence predictions for manual review.
+  - [x] `main_l10_diagnostics.py` writes `output/l10_diagnostics_report.json/.md`.
+  - [x] 8 L10.5 unit tests PASS; sanity check confirms macro F0.5 matches the official scorer.
+- [x] **L11: Test Inference & Validation (`src/l11_inference/`) (COMPLETED ✅)**
+  - [x] `scorer.py` — loads the exported LightGBM booster (`lgbm_variant_<v>.txt`) and the optional L9 isotonic calibrator; LightGBM imported before scikit-learn (Windows OpenMP).
+  - [x] `inference.py` — streaming reference-batch inference: reads L5 `candidate_pairs.tsv`, computes the 27 L7 features per pair, scores with the booster, calibrates, and applies the L10 decision engine.
+  - [x] Memory-bounded: only candidates at/above `tau_match` are retained (lossless — the L10 margin rule can never keep below `tau_match`); IDF built once in a dedicated streaming pass.
+  - [x] `main_l11.py` generates `output/matching_results.tsv` + `output/candidate_pairs.tsv` (full Source-1 coverage) and invokes `DATA SET/student_resource/utils/validate_submission.py`.
+  - [x] Thresholds resolve CLI → L10 report → L8 report → defaults; no ground truth needed.
+  - [x] 7 L11 unit tests PASS; smoke proves the output format passes the official validator.
+  - [ ] Full end-to-end test run (pending the complete L3→L5→L8 chain + trained booster).
 - [ ] **L11.5: FIRST LEADERBOARD SUBMISSION 🚀**
   - [ ] Upload `matching_results.tsv` to Unstop Portal to lock in baseline score!
 - [ ] **L12: Targeted Stretch Enhancements**

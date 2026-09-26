@@ -16,10 +16,6 @@ ABBREV_US: dict[str, str] = {
     "rd": "road",
     "ave": "avenue",
     "blvd": "boulevard",
-    "n": "north",
-    "s": "south",
-    "e": "east",
-    "w": "west",
     "ste": "suite",
     "apt": "apartment",
     "bldg": "building",
@@ -46,7 +42,6 @@ ABBREV_FRANCE: dict[str, str] = {
     "sci": "societe civile immobiliere",
     "av": "avenue",
     "bd": "boulevard",
-    "r": "rue",
     "ste": "sainte",
     "st": "saint",
 }

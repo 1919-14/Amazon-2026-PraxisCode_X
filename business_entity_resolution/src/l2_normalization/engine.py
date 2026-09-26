@@ -6,10 +6,9 @@ import pandas as pd
 
 from l2_normalization.abbreviations import expand_tokens, extract_legal_suffix
 from l2_normalization.address_parser import (
-    parse_city,
+    parse_address_components,
     parse_house_number,
     parse_postal,
-    parse_state,
 )
 from l2_normalization.phonetic import phonetic_encode
 from l2_normalization.stopwords import remove_stopwords
@@ -135,8 +134,14 @@ def normalize_record(row: dict) -> dict:
 
     addr_postal = parse_postal(addr_norm, country_norm)
     addr_house_number = parse_house_number(addr_norm)
-    addr_state = parse_state(addr_tokens, country_norm)
-    addr_city = parse_city(addr_tokens, addr_postal, addr_state)
+    addr_state, addr_city = parse_address_components(addr_tokens, country_norm)
+    # For addresses with an explicit postal code in European style (code then city),
+    # override addr_city with the post-code lookup if components gave no city.
+    if not addr_city and addr_postal:
+        for i, tok in enumerate(addr_tokens):
+            if tok == addr_postal and i + 1 < len(addr_tokens) and addr_tokens[i + 1].isalpha():
+                addr_city = addr_tokens[i + 1]
+                break
     addr_digits = extract_digit_runs(addr_raw)
 
     is_missing_postal = addr_postal == ""
