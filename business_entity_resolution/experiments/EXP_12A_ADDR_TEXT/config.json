@@ -1,0 +1,21 @@
+{
+  "experiment": "EXP-12A-ADDR-TEXT",
+  "seed": 42,
+  "split": "train",
+  "refs": "train",
+  "countries": ["india"],
+  "ref_sample": 100000,
+  "ref_seed": 42,
+  "topk": 200,
+  "block_size": 2000000,
+  "ref_block_size": 125000,
+  "char_channel": true,
+  "addr_text": true,
+  "changes": {
+    "L3_RETRIEVAL_INCLUDE_ADDRESS": true,
+    "note": "Sparse channels C/D index and query 'name_core + addr_norm' instead of name_core alone. Channel A keys stay name-only.",
+    "L5_K_MIN": 6,
+    "L5_COARSE_RATIO": 0.9,
+    "note_l5": "k_min is a rank floor so multi-match references are not reduced to their single strongest hit."
+  }
+}

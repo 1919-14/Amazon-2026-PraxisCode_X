@@ -1,0 +1,57 @@
+{
+  "experiment": "EXP-CHAIN-L6-L10",
+  "scope": "India, train pool, 100,000 reference sample (seed 42), addr-text blocking",
+  "validation_protocol": {
+    "grouping": "GroupKFold on source1_entity_id (5 folds) — no S1 entity spans folds",
+    "oof": true,
+    "thresholds": "tau_match/tau_s grid searched on the same OOF scores (mild optimism noted)",
+    "candidate_set": "L5 output, avg K = 6.287 (compactness band 5.5-7.0)"
+  },
+  "candidate_generation": {
+    "candidate_recall_micro": 0.7636,
+    "non_singleton_references": 94390,
+    "oracle_macro_f05": 0.9023,
+    "oracle_singleton_f05": 1.0
+  },
+  "model": {
+    "algorithm": "LightGBM",
+    "variant_a_pairs": 1103884,
+    "features": 27,
+    "positives": 264324,
+    "hard_negatives": 292006,
+    "easy_negatives": 547554,
+    "oof_auc": 0.996,
+    "oof_macro_f05_raw": 0.7937,
+    "selected_thresholds": {"tau_match": 0.2, "tau_s": 0.5, "margin": 0.05},
+    "top_features": ["name_idf_overlap", "addr_token_jaccard", "name_token_jaccard", "struct_addr_len_ratio", "name_jaro_winkler"]
+  },
+  "calibration": {
+    "chosen": "global isotonic",
+    "ece_before": 0.0068,
+    "ece_after": 0.0004,
+    "macro_f05_after": 0.805
+  },
+  "final_decision": {
+    "macro_f05": 0.805,
+    "singleton_f05": 0.7834,
+    "non_singleton_f05": 0.8062,
+    "references": 100000,
+    "predicted_non_empty": 91350,
+    "predicted_empty": 8650,
+    "matched_pairs": 202246
+  },
+  "leakage_audit": {
+    "variant_b_macro_f05_reported": 0.9023,
+    "variant_b_verdict": "INVALID — variant B contains only positives + easy negatives, and L8 evaluates on neg_type != 'easy', so its decision set is positives only. Its F0.5 exactly equals the oracle ceiling (0.9023), confirming it measures candidate recall, not the matcher.",
+    "guard_added": "main_l8.py now flags variants with no hard negatives in the decision set as 'comparable: false' and excludes them from winner selection.",
+    "features_from_dataset_only": true,
+    "no_test_labels_used": true
+  },
+  "confidence_remaining_gap": {
+    "ceiling": 0.9023,
+    "achieved": 0.805,
+    "fraction_of_ceiling": 0.892,
+    "interpretation": "Candidate recall is the binding constraint; the matcher retains ~89% of what perfect classification within candidates would score."
+  },
+  "decision": "Variant A (hard negatives) is the valid system; Variant B discarded."
+}

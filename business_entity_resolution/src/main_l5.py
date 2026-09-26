@@ -9,6 +9,12 @@ deliverable plus a blocking report:
     output/candidate_pairs_val.tsv  (train split dev output)
     output/blocking_report.md
 
+Memory
+------
+Like Layer 4 this layer cannot hold a country bucket in Python objects. Both the
+tuning pass and the write pass stream the L4 (and aligned L3) artifacts in
+reference batches, keeping only the batch in flight plus integer counters.
+
 Usage
 -----
 # Validation run (tunes ratio, writes dev candidate pairs + report):
@@ -40,10 +46,12 @@ for _p in (str(SRC_DIR), str(PROJECT_ROOT)):
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+import pyarrow.parquet as pq
 import pandas as pd
 
 from config import (
     L3_COUNTRIES,
+    L4_REF_BATCH,
     L5_COARSE_RATIO,
     L5_K_MAX,
     L5_K_MAX_TARGET,
@@ -65,9 +73,9 @@ from utils.coverage import (
 )
 from utils.reports import merge_json_report, render_markdown_table, write_text
 
-# Reuse Layer 3/4 artifact helpers so paths and loading stay consistent.
+# Reuse Layer 3/4 helpers so paths and loading stay consistent.
 from main_l3 import load_ground_truth, resolve_reference_ids
-from main_l4 import l3_artifact_path, l4_artifact_path, load_l3_artifact
+from main_l4 import iter_l3_artifact_batches, l3_artifact_path, l4_artifact_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,6 +96,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--k-max", type=int, default=L5_K_MAX)
     parser.add_argument("--no-tune", action="store_true", help="Skip ratio tuning (use --ratio).")
     parser.add_argument("--output", type=str, default=None, help="Override candidate_pairs.tsv path.")
+    parser.add_argument(
+        "--ref-batch",
+        type=int,
+        default=L4_REF_BATCH,
+        help="References per streaming batch (bounds peak memory).",
+    )
     parser.add_argument(
         "--allow-missing-countries",
         action="store_true",
@@ -119,16 +133,42 @@ def default_output_path(args: argparse.Namespace) -> Path:
     return PATH_OUTPUT_DIR / f"candidate_pairs_{args.refs}.tsv"
 
 
-def load_l4_artifact(path: Path) -> tuple[list[str], list[list[tuple[str, float]]]]:
-    """Load fused candidate ids + scores from a Layer 4 parquet artifact."""
-    df = pd.read_parquet(path, columns=["source1_entity_id", "candidate_entity_ids", "fused_scores"])
-    reference_ids = [str(v) for v in df["source1_entity_id"].tolist()]
-    fused: list[list[tuple[str, float]]] = []
-    for candidates, scores in zip(df["candidate_entity_ids"].tolist(), df["fused_scores"].tolist()):
-        candidates = [] if candidates is None else candidates
-        scores = [] if scores is None else scores
-        fused.append([(str(c), float(s)) for c, s in zip(candidates, scores)])
-    return reference_ids, fused
+def iter_l4_artifact_batches(path: Path, batch_size: int):
+    """Yield ``(reference_ids, fused)`` streaming batches from an L4 artifact.
+
+    ``fused`` is a list of ``(candidate_id, fused_score)`` lists aligned with
+    ``reference_ids`` for this batch only.
+    """
+    parquet_file = pq.ParquetFile(str(path))
+    columns = ["source1_entity_id", "candidate_entity_ids", "fused_scores"]
+    for batch in parquet_file.iter_batches(batch_size=batch_size, columns=columns):
+        data = batch.to_pydict()
+        reference_ids = [str(v) for v in data["source1_entity_id"]]
+        candidates_col = data["candidate_entity_ids"]
+        scores_col = data["fused_scores"]
+        fused: list[list[tuple[str, float]]] = []
+        for candidates, scores in zip(candidates_col, scores_col):
+            candidates = [] if candidates is None else candidates
+            scores = [] if scores is None else scores
+            fused.append([(str(c), float(s)) for c, s in zip(candidates, scores)])
+        yield reference_ids, fused
+
+
+def align_batches(l4_path: Path, l3_path: Path, batch_size: int):
+    """Yield ``(reference_ids, fused, channels_or_None)`` for aligned L4/L3 batches.
+
+    The two artifacts are written row-aligned by the upstream layers, but the
+    alignment is verified per batch rather than assumed: if a batch disagrees the
+    channel evidence is dropped for it (``channels=None``), which degrades the
+    coarse score to pure RRF order instead of silently mixing unrelated rows.
+    """
+    l3_iter = (
+        iter_l3_artifact_batches(l3_path, batch_size) if l3_path.exists() else iter(())
+    )
+    for (l4_ids, fused), (l3_ids, channels) in zip(
+        iter_l4_artifact_batches(l4_path, batch_size), l3_iter
+    ):
+        yield l4_ids, fused, (channels if l3_ids == l4_ids else None)
 
 
 def choose_ratio(
@@ -172,6 +212,7 @@ def main() -> None:
     print(f"  split={args.split} | refs={args.refs} | countries={args.countries}")
     print(f"  ratio-grid={ratios} | k_min={args.k_min} | k_max={args.k_max}")
     print(f"  target K band = [{L5_K_MIN_TARGET}, {L5_K_MAX_TARGET}]")
+    print(f"  ref-batch={args.ref_batch:,} (streamed, bounds memory)")
 
     planned = planned_reference_counts(args.split, args.refs, args.countries)
     coverage = check_country_artifacts(
@@ -192,9 +233,7 @@ def main() -> None:
         if coverage["coverage"]
         else "  input coverage: (no artifacts verified)"
     )
-    expected_rows = sum(
-        int(planned.get(country, 0)) for country in coverage["present"]
-    )
+    expected_rows = sum(int(planned.get(country, 0)) for country in coverage["present"])
 
     ref_ids = resolve_reference_ids(args)
     gt_map = load_ground_truth(ref_ids) if args.split == "train" else {}
@@ -223,32 +262,31 @@ def main() -> None:
                 missing_artifacts.append(country)
                 continue
 
-            reference_ids, fused_lists = load_l4_artifact(l4_path)
-            l3_ids, l3_channels = load_l3_artifact(l3_path) if l3_path.exists() else ([], {})
-            aligned = l3_ids == reference_ids
+            for reference_ids, fused_batch, channels_batch in align_batches(
+                l4_path, l3_path, args.ref_batch
+            ):
+                for i, (s1_id, fused) in enumerate(zip(reference_ids, fused_batch)):
+                    if channels_batch is None:
+                        channel_lists = None
+                    else:
+                        channel_lists = {ch: channels_batch[ch][i] for ch in channels_batch}
+                    scored = coarse_score(fused, channel_lists)
+                    truth = gt_map.get(s1_id)
 
-            for i, (s1_id, fused) in enumerate(zip(reference_ids, fused_lists)):
-                if aligned:
-                    channel_lists = {ch: l3_channels[ch][i] for ch in l3_channels}
-                else:
-                    channel_lists = None
-                scored = coarse_score(fused, channel_lists)
-                truth = gt_map.get(s1_id)
-
-                n_references += 1
-                if truth:
-                    n_non_singleton += 1
-                    total_gt_pairs += len(truth)
-
-                for ratio in tune_ratios:
-                    kept = adaptive_truncate(scored, ratio, args.k_min, args.k_max)
-                    kept_counts[ratio] += len(kept)
+                    n_references += 1
                     if truth:
-                        kept_non_singleton[ratio] += len(kept)
-                        hits[ratio] += len(set(kept) & truth)
+                        n_non_singleton += 1
+                        total_gt_pairs += len(truth)
 
-            del fused_lists, l3_channels
-            gc.collect()
+                    for ratio in tune_ratios:
+                        kept = adaptive_truncate(scored, ratio, args.k_min, args.k_max)
+                        kept_counts[ratio] += len(kept)
+                        if truth:
+                            kept_non_singleton[ratio] += len(kept)
+                            hits[ratio] += len(set(kept) & truth)
+
+                del fused_batch, channels_batch
+                gc.collect()
 
         chosen_ratio = choose_ratio(
             tune_ratios, kept_counts, hits, n_references, total_gt_pairs, has_ground_truth
@@ -261,7 +299,7 @@ def main() -> None:
         print(f"\n  fixed ratio = {chosen_ratio} (no tuning)")
 
     # ------------------------------------------------------------------
-    # Pass 2: write the truncated candidate set
+    # Pass 2: write the truncated candidate set (streamed)
     # ------------------------------------------------------------------
     out_path.parent.mkdir(parents=True, exist_ok=True)
     total_kept = 0
@@ -291,40 +329,41 @@ def main() -> None:
                     missing_artifacts.append(country)
                 continue
 
-            reference_ids, fused_lists = load_l4_artifact(l4_path)
-            l3_ids, l3_channels = load_l3_artifact(l3_path) if l3_path.exists() else ([], {})
-            aligned = l3_ids == reference_ids
-
-            for i, (s1_id, fused) in enumerate(zip(reference_ids, fused_lists)):
-                channel_lists = (
-                    {ch: l3_channels[ch][i] for ch in l3_channels} if aligned else None
-                )
-                kept = adaptive_truncate(
-                    coarse_score(fused, channel_lists), chosen_ratio, args.k_min, args.k_max
-                )
-                writer.writerow([s1_id, ",".join(kept)])
-                total_kept += len(kept)
-                rows_written += 1
-                written_by_country[country] = written_by_country.get(country, 0) + 1
-                kept_by_country[country] = kept_by_country.get(country, 0) + len(kept)
-
-                if signal_writer is not None:
-                    rrf_by_candidate = dict(fused)
-                    agreement: dict[str, int] = {}
-                    if channel_lists:
-                        for candidates in channel_lists.values():
-                            for candidate in candidates:
-                                agreement[candidate] = agreement.get(candidate, 0) + 1
-                    n_channels = max(1, len(channel_lists)) if channel_lists else 1
-                    signal_writer.add(
-                        s1_id,
-                        kept,
-                        [rrf_by_candidate.get(candidate, 0.0) for candidate in kept],
-                        [agreement.get(candidate, 0) / n_channels for candidate in kept],
+            for reference_ids, fused_batch, channels_batch in align_batches(
+                l4_path, l3_path, args.ref_batch
+            ):
+                for i, (s1_id, fused) in enumerate(zip(reference_ids, fused_batch)):
+                    channel_lists = (
+                        None
+                        if channels_batch is None
+                        else {ch: channels_batch[ch][i] for ch in channels_batch}
                     )
+                    kept = adaptive_truncate(
+                        coarse_score(fused, channel_lists), chosen_ratio, args.k_min, args.k_max
+                    )
+                    writer.writerow([s1_id, ",".join(kept)])
+                    total_kept += len(kept)
+                    rows_written += 1
+                    written_by_country[country] = written_by_country.get(country, 0) + 1
+                    kept_by_country[country] = kept_by_country.get(country, 0) + len(kept)
 
-            del fused_lists, l3_channels
-            gc.collect()
+                    if signal_writer is not None:
+                        rrf_by_candidate = dict(fused)
+                        agreement: dict[str, int] = {}
+                        if channel_lists:
+                            for candidates in channel_lists.values():
+                                for candidate in candidates:
+                                    agreement[candidate] = agreement.get(candidate, 0) + 1
+                        n_channels = max(1, len(channel_lists)) if channel_lists else 1
+                        signal_writer.add(
+                            s1_id,
+                            kept,
+                            [rrf_by_candidate.get(candidate, 0.0) for candidate in kept],
+                            [agreement.get(candidate, 0) / n_channels for candidate in kept],
+                        )
+
+                del fused_batch, channels_batch
+                gc.collect()
 
     if signal_writer is not None:
         signal_writer.close()
@@ -391,6 +430,7 @@ def main() -> None:
             "chosen_ratio": chosen_ratio,
             "k_min": args.k_min,
             "k_max": args.k_max,
+            "ref_batch": args.ref_batch,
             "signals": str(signal_file) if signal_file is not None else None,
         },
         "references": rows_written,

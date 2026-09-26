@@ -81,6 +81,21 @@ def _as_str_list(series: pd.Series) -> list[str]:
     return series.fillna("").astype(str).tolist()
 
 
+def _retrieval_text(df: pd.DataFrame, include_address: bool) -> list[str]:
+    """Return the text the sparse channels index/query for each row.
+
+    With ``include_address`` the channels see ``name_core + " " + addr_norm`` so an
+    address match can retrieve a pair whose names differ; otherwise the historical
+    name-only text is used. The two states are not interchangeable for the *same*
+    persisted index, because they define different vocabularies and score spaces.
+    """
+    names = _as_str_list(df["name_core"])
+    if not include_address or "addr_norm" not in df.columns:
+        return names
+    addresses = _as_str_list(df["addr_norm"])
+    return [f"{name} {address}".strip() for name, address in zip(names, addresses)]
+
+
 def make_word_channel() -> SparseTfidfChannel:
     """Channel C: word-level TF-IDF with the configured pruning."""
     return SparseTfidfChannel(
@@ -123,6 +138,7 @@ class CountryIndexMeta:
     vocab_size_c: int = 0
     vocab_size_d: int = 0
     sample_size: int = 0
+    include_address: bool = False
 
     @property
     def n_blocks(self) -> int:
@@ -159,6 +175,7 @@ def build_country_index(
     block_size: int = L3_BLOCK_SIZE,
     vocab_sample: int = L3_VOCAB_SAMPLE,
     enable_char: bool = True,
+    include_address: bool = False,
     max_candidates: Optional[int] = None,
     progress=print,
 ) -> CountryIndexMeta:
@@ -172,6 +189,7 @@ def build_country_index(
         block_size: candidates per block (bounds peak memory).
         vocab_sample: documents sampled to fit the shared vocabulary + IDF.
         enable_char: build channel D as well.
+        include_address: index ``name_core + addr_norm`` instead of name only.
         max_candidates / progress: development caps and progress logging.
 
     Returns:
@@ -190,6 +208,7 @@ def build_country_index(
         block_size=int(block_size),
         enable_char=bool(enable_char),
         n_candidates=0,
+        include_address=bool(include_address),
     )
 
     # ------------------------------------------------------------------
@@ -199,7 +218,7 @@ def build_country_index(
     for block in iter_country_candidate_blocks(split, country, block_size, max_candidates):
         if len(sample) >= vocab_sample:
             break
-        names = _as_str_list(block["name_core"])
+        names = _retrieval_text(block, include_address)
         sample.extend(names[: vocab_sample - len(sample)])
 
     meta.sample_size = len(sample)
@@ -229,7 +248,11 @@ def build_country_index(
     for block_idx, block in enumerate(
         iter_country_candidate_blocks(split, country, block_size, max_candidates)
     ):
+        # Channel A keeps using the name only: its keys are exact name / name+postal
+        # / name+house hashes, so folding the address into the name would change the
+        # key semantics. Only the sparse channels C/D take the widened text.
         names = _as_str_list(block["name_core"])
+        texts = _retrieval_text(block, include_address)
         postals = _as_str_list(block["addr_postal"])
         houses = _as_str_list(block["addr_house_number"])
         ids = _as_str_list(block["entity_id"])
@@ -248,11 +271,11 @@ def build_country_index(
             )
         del channel_a
 
-        channel_c.build_with_vocab(names)
+        channel_c.build_with_vocab(texts)
         if channel_c.inverted is not None:
             sp.save_npz(meta.path(f"c_{block_idx:05d}.npz"), channel_c.inverted)
         if channel_d is not None:
-            channel_d.build_with_vocab(names)
+            channel_d.build_with_vocab(texts)
             if channel_d.inverted is not None:
                 sp.save_npz(meta.path(f"d_{block_idx:05d}.npz"), channel_d.inverted)
 
@@ -264,7 +287,7 @@ def build_country_index(
         meta.n_candidates += len(ids)
         progress(f"    block {block_idx + 1:3d} | {len(ids):>8,} candidates | total {offset:>9,}")
 
-        del names, postals, houses, ids, block
+        del names, texts, postals, houses, ids, block
         gc.collect()
 
     meta.save()
@@ -416,7 +439,11 @@ def query_reference_block(
     """
     reference_df = reference_df.reset_index(drop=True)
     reference_ids = _as_str_list(reference_df["entity_id"])
+    # Channel A keys are exact name / name+postal / name+house hashes, so its query
+    # must use the *bare* name to stay in the same key space as the index. Only the
+    # sparse channels C/D use the (optionally address-widened) retrieval text.
     names = _as_str_list(reference_df["name_core"])
+    sparse_texts = _retrieval_text(reference_df, meta.include_address)
     postals = _as_str_list(reference_df["addr_postal"])
     houses = _as_str_list(reference_df["addr_house_number"])
     n_refs = len(reference_ids)
@@ -458,7 +485,7 @@ def query_reference_block(
             index = load_block_sparse_index(meta, block_idx, channel)
             if index is None:
                 continue
-            results = index.query_with_scores(names, topk)
+            results = index.query_with_scores(sparse_texts, topk)
             refs: list[int] = []
             keys: list[int] = []
             scores: list[float] = []

@@ -1,0 +1,48 @@
+{
+  "experiment": "EXP-12A-ADDR-TEXT",
+  "primary_metric_note": "Blocking layers have no F0.5; recall is the gating metric (Gate 2). F0.5 is measured later at L8/L10.",
+  "candidate_recall_gate": 0.90,
+  "india_train_100k": {
+    "BASE_name_only": {
+      "channel_a_recall": 0.31697,
+      "channel_c_recall": 0.47716,
+      "channel_d_recall": 0.50227,
+      "union_recall": 0.63736,
+      "union_any_hit_recall": 0.85625,
+      "avg_candidates": 286.43,
+      "runtime_seconds": 963.84,
+      "peak_rss_mb": 2830.1
+    },
+    "WITH_addr_text": {
+      "channel_a_recall": 0.31700,
+      "channel_c_recall": 0.87250,
+      "channel_d_recall": 0.84560,
+      "union_recall": 0.92230,
+      "union_any_hit_recall": 0.99060,
+      "avg_candidates": 367.02,
+      "runtime_seconds": 1819.6,
+      "peak_rss_mb": 2894.0
+    },
+    "union_recall_delta": 0.28494
+  },
+  "layer4_rrf_k60": {
+    "recall_at_5": 0.7240,
+    "recall_at_10": 0.8075,
+    "recall_at_20": 0.8421,
+    "recall_at_50": 0.8782,
+    "elapsed_seconds": 130.9
+  },
+  "layer5_truncation": {
+    "BASE_ratio_0.7_kmin_1": {"avg_k": 4.367, "candidate_recall": 0.4664},
+    "FIXED_ratio_0.9_kmin_6": {"avg_k": 6.287, "candidate_recall": 0.7636},
+    "candidate_recall_delta": 0.2972,
+    "target_k_band": [5.5, 7.0]
+  },
+  "channel_a_invariance_check": "Channel A recall is identical (0.31697 vs 0.31700) with and without addr_text, confirming the widened text does not disturb exact-key lookups.",
+  "leakage_audit": {
+    "features_from_dataset_only": true,
+    "uses_ground_truth_labels_at_inference": false,
+    "notes": "L3 retrieval text uses only S1/S2/S3 normalized fields (name_core, addr_norm). Recall measurement uses the train-fold ground truth, which is legitimate for candidate-generation tuning."
+  },
+  "decision": "KEEP"
+}

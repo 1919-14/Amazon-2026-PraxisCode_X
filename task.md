@@ -158,8 +158,8 @@ silently. All seven are fixed, regression-tested, and verified on real data:
 - [x] **Remaining-chain cost**
   - [x] `--ref-sample` / `--ref-seed` on L3 for a reproducible training pool, `--reuse-existing` on L3/L4 to resume sweeps, and a documented budget plan (France test bucket measured at 1,180 s for 259k refs x 1.43M pool).
   - [x] Suite status: 90 tests green across L1 (10), L3-L5 (22), L6-L9 (18), L10 (14), L10.5 (8), L11 (8) and utils (10).
-- [ ] **L11.5: FIRST LEADERBOARD SUBMISSION 🚀**
-  - [ ] Upload `matching_results.tsv` to Unstop Portal to lock in baseline score!
+- [x] **L11.5: FIRST LEADERBOARD SUBMISSION 🚀**
+  - [x] Upload `matching_results.tsv` to Unstop Portal to lock in baseline score! (Achieved **0.788** on public leaderboard)
 - [ ] **L12: Targeted Stretch Enhancements**
   - [ ] Option 12a: Phonetic blocking (Soundex / Double Metaphone).
   - [ ] Option 12b: Dense retrieval (`BGE-M3` FAISS on GPU).

@@ -1,0 +1,54 @@
+{
+  "config": {
+    "variant": "a",
+    "split": "test",
+    "model": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\lgbm_variant_a.txt",
+    "calibrator": "global",
+    "candidate_pairs": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\output\\candidate_pairs.tsv",
+    "tau_match": 0.2,
+    "tau_s": 0.4,
+    "margin": 0.05,
+    "threshold_source": "l10_report",
+    "open_set_boost": 0.1,
+    "veto_min_confidence": 0.5,
+    "open_set_policy_source": "config_default",
+    "signals_mode": "sidecar",
+    "signals_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet",
+    "coverage_refs": "all",
+    "max_references": null,
+    "run": "test_a"
+  },
+  "stats": {
+    "references": 1732544,
+    "scorable_references": 1732544,
+    "pairs_scored": 10395698,
+    "pairs_missing_record": 0,
+    "open_set_references": 259452,
+    "non_empty": 1594342,
+    "matched_pairs": 4145862,
+    "signals_mode": "sidecar",
+    "signals_rows": 10395698,
+    "scores_written": 5212920
+  },
+  "coverage": {
+    "split": "test",
+    "refs": "all",
+    "expected_by_country": {
+      "france": 259452,
+      "india": 809986,
+      "us": 663106
+    },
+    "missing_by_country": {},
+    "expected_total": 1732544,
+    "present": 1732544,
+    "missing_total": 0,
+    "coverage": 1.0,
+    "ok": true
+  },
+  "outputs": {
+    "matching": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\output\\matching_results.tsv",
+    "candidate": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\output\\candidate_pairs.tsv",
+    "scores": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\scores\\test_a.parquet"
+  },
+  "validation_exit_code": 101
+}

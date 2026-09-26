@@ -3,15 +3,319 @@
     "split": "test",
     "refs": "all",
     "countries": [
+      "india",
       "france"
     ],
     "topk": 50,
     "char_channel": true,
+    "addr_text": true,
     "max_candidates": null,
-    "max_refs": null
+    "max_refs": null,
+    "block_size": 2000000,
+    "ref_block_size": 125000,
+    "vocab_sample": 300000,
+    "ref_sample": null,
+    "ref_seed": 42
+  },
+  "per_country": {
+    "india": {
+      "references": 809986,
+      "expected_references": 809986,
+      "candidates": 4717565,
+      "blocks": 3,
+      "vocab_size_c": 81058,
+      "vocab_size_d": 136454,
+      "reused": false,
+      "artifact": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\blocking\\l3_test_all_country=india.parquet",
+      "artifact_mb": 818.2,
+      "recall": null
+    },
+    "france": {
+      "references": 259452,
+      "expected_references": 259452,
+      "candidates": 1434993,
+      "blocks": 1,
+      "vocab_size_c": 36761,
+      "vocab_size_d": 73364,
+      "reused": false,
+      "artifact": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\blocking\\l3_test_all_country=france.parquet",
+      "artifact_mb": 242.6,
+      "recall": null
+    }
   },
   "overall": {},
-  "per_country": {},
-  "n_references": 259452,
-  "elapsed_seconds": 1180.41
+  "n_references": 1069438,
+  "peak_rss_mb": 1332.6,
+  "memory_budget_mb": 1800,
+  "elapsed_seconds": 6537.21,
+  "run": "test_all",
+  "runs": {
+    "legacy_previous_run": {
+      "config": {
+        "split": "test",
+        "refs": "all",
+        "countries": [
+          "france"
+        ],
+        "topk": 50,
+        "char_channel": true,
+        "max_candidates": null,
+        "max_refs": null
+      },
+      "overall": {},
+      "per_country": {},
+      "n_references": 259452,
+      "elapsed_seconds": 1180.41
+    },
+    "train_val": {
+      "config": {
+        "split": "train",
+        "refs": "val",
+        "countries": [
+          "us"
+        ],
+        "topk": 50,
+        "char_channel": false,
+        "max_candidates": null,
+        "max_refs": null,
+        "block_size": 500000,
+        "ref_block_size": 250000,
+        "vocab_sample": 300000,
+        "ref_sample": 30000,
+        "ref_seed": 42
+      },
+      "per_country": {
+        "us": {
+          "references": 30000,
+          "expected_references": 30000,
+          "candidates": 6186873,
+          "blocks": 13,
+          "vocab_size_c": 27974,
+          "vocab_size_d": 0,
+          "reused": false,
+          "artifact": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\blocking\\l3_train_val_country=us.parquet",
+          "artifact_mb": 15.0,
+          "recall": 0.697643966455166
+        }
+      },
+      "overall": {
+        "A": {
+          "n_references": 30000,
+          "n_references_with_gt": 28300,
+          "n_references_with_any_hit": 23706,
+          "total_gt_pairs": 103861,
+          "hit_gt_pairs": 41166,
+          "total_candidates": 130550,
+          "singleton_references": 1700,
+          "singleton_with_candidates": 1168,
+          "micro_recall": 0.3963566690095416,
+          "any_hit_recall": 0.8376678445229682,
+          "avg_candidates_per_reference": 4.351666666666667,
+          "singleton_candidate_rate": 0.6870588235294117
+        },
+        "C": {
+          "n_references": 30000,
+          "n_references_with_gt": 28300,
+          "n_references_with_any_hit": 22451,
+          "total_gt_pairs": 103861,
+          "hit_gt_pairs": 62757,
+          "total_candidates": 1489399,
+          "singleton_references": 1700,
+          "singleton_with_candidates": 1690,
+          "micro_recall": 0.6042402826855123,
+          "any_hit_recall": 0.7933215547703181,
+          "avg_candidates_per_reference": 49.646633333333334,
+          "singleton_candidate_rate": 0.9941176470588236
+        },
+        "D": {
+          "n_references": 30000,
+          "n_references_with_gt": 28300,
+          "n_references_with_any_hit": 0,
+          "total_gt_pairs": 103861,
+          "hit_gt_pairs": 0,
+          "total_candidates": 0,
+          "singleton_references": 1700,
+          "singleton_with_candidates": 0,
+          "micro_recall": 0.0,
+          "any_hit_recall": 0.0,
+          "avg_candidates_per_reference": 0.0,
+          "singleton_candidate_rate": 0.0
+        },
+        "UNION": {
+          "n_references": 30000,
+          "n_references_with_gt": 28300,
+          "n_references_with_any_hit": 26613,
+          "total_gt_pairs": 103861,
+          "hit_gt_pairs": 72458,
+          "total_candidates": 1540242,
+          "singleton_references": 1700,
+          "singleton_with_candidates": 1696,
+          "micro_recall": 0.697643966455166,
+          "any_hit_recall": 0.9403886925795053,
+          "avg_candidates_per_reference": 51.3414,
+          "singleton_candidate_rate": 0.9976470588235294
+        }
+      },
+      "n_references": 30000,
+      "peak_rss_mb": 944.6,
+      "memory_budget_mb": 1800,
+      "elapsed_seconds": 349.94,
+      "run": "train_val"
+    },
+    "test_all": {
+      "config": {
+        "split": "test",
+        "refs": "all",
+        "countries": [
+          "india",
+          "france"
+        ],
+        "topk": 50,
+        "char_channel": true,
+        "addr_text": true,
+        "max_candidates": null,
+        "max_refs": null,
+        "block_size": 2000000,
+        "ref_block_size": 125000,
+        "vocab_sample": 300000,
+        "ref_sample": null,
+        "ref_seed": 42
+      },
+      "per_country": {
+        "india": {
+          "references": 809986,
+          "expected_references": 809986,
+          "candidates": 4717565,
+          "blocks": 3,
+          "vocab_size_c": 81058,
+          "vocab_size_d": 136454,
+          "reused": false,
+          "artifact": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\blocking\\l3_test_all_country=india.parquet",
+          "artifact_mb": 818.2,
+          "recall": null
+        },
+        "france": {
+          "references": 259452,
+          "expected_references": 259452,
+          "candidates": 1434993,
+          "blocks": 1,
+          "vocab_size_c": 36761,
+          "vocab_size_d": 73364,
+          "reused": false,
+          "artifact": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\blocking\\l3_test_all_country=france.parquet",
+          "artifact_mb": 242.6,
+          "recall": null
+        }
+      },
+      "overall": {},
+      "n_references": 1069438,
+      "peak_rss_mb": 1332.6,
+      "memory_budget_mb": 1800,
+      "elapsed_seconds": 6537.21,
+      "run": "test_all"
+    },
+    "train_train": {
+      "config": {
+        "split": "train",
+        "refs": "train",
+        "countries": [
+          "us"
+        ],
+        "topk": 50,
+        "char_channel": true,
+        "addr_text": true,
+        "max_candidates": null,
+        "max_refs": null,
+        "block_size": 2000000,
+        "ref_block_size": 125000,
+        "vocab_sample": 300000,
+        "ref_sample": 80000,
+        "ref_seed": 42
+      },
+      "per_country": {
+        "us": {
+          "references": 80000,
+          "expected_references": 80000,
+          "candidates": 6186873,
+          "blocks": 4,
+          "vocab_size_c": 69728,
+          "vocab_size_d": 111267,
+          "reused": false,
+          "artifact": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\blocking\\l3_train_train_country=us.parquet",
+          "artifact_mb": 76.8,
+          "recall": 0.9713761547406664
+        }
+      },
+      "overall": {
+        "A": {
+          "n_references": 80000,
+          "n_references_with_gt": 75584,
+          "n_references_with_any_hit": 63351,
+          "total_gt_pairs": 276902,
+          "hit_gt_pairs": 110158,
+          "total_candidates": 357165,
+          "singleton_references": 4416,
+          "singleton_with_candidates": 3099,
+          "micro_recall": 0.3978230565326361,
+          "any_hit_recall": 0.8381535774767146,
+          "avg_candidates_per_reference": 4.4645625,
+          "singleton_candidate_rate": 0.701766304347826
+        },
+        "C": {
+          "n_references": 80000,
+          "n_references_with_gt": 75584,
+          "n_references_with_any_hit": 75091,
+          "total_gt_pairs": 276902,
+          "hit_gt_pairs": 260614,
+          "total_candidates": 4000000,
+          "singleton_references": 4416,
+          "singleton_with_candidates": 4416,
+          "micro_recall": 0.9411777451950509,
+          "any_hit_recall": 0.9934774555461473,
+          "avg_candidates_per_reference": 50.0,
+          "singleton_candidate_rate": 1.0
+        },
+        "D": {
+          "n_references": 80000,
+          "n_references_with_gt": 75584,
+          "n_references_with_any_hit": 74625,
+          "total_gt_pairs": 276902,
+          "hit_gt_pairs": 252446,
+          "total_candidates": 4000000,
+          "singleton_references": 4416,
+          "singleton_with_candidates": 4416,
+          "micro_recall": 0.9116799445291114,
+          "any_hit_recall": 0.9873121295512278,
+          "avg_candidates_per_reference": 50.0,
+          "singleton_candidate_rate": 1.0
+        },
+        "UNION": {
+          "n_references": 80000,
+          "n_references_with_gt": 75584,
+          "n_references_with_any_hit": 75483,
+          "total_gt_pairs": 276902,
+          "hit_gt_pairs": 268976,
+          "total_candidates": 7217088,
+          "singleton_references": 4416,
+          "singleton_with_candidates": 4416,
+          "micro_recall": 0.9713761547406664,
+          "any_hit_recall": 0.9986637383573242,
+          "avg_candidates_per_reference": 90.2136,
+          "singleton_candidate_rate": 1.0
+        }
+      },
+      "n_references": 80000,
+      "peak_rss_mb": 2131.8,
+      "memory_budget_mb": 1800,
+      "elapsed_seconds": 2262.36,
+      "run": "train_train"
+    }
+  },
+  "latest_run": "test_all",
+  "run_keys": [
+    "legacy_previous_run",
+    "test_all",
+    "train_train",
+    "train_val"
+  ]
 }

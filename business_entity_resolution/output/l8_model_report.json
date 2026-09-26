@@ -1,0 +1,92 @@
+{
+  "config": {
+    "n_folds": 5,
+    "seed": 42,
+    "max_pairs": null,
+    "tau_match_grid": [
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9
+    ],
+    "tau_s_grid": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7
+    ],
+    "margin": 0.05
+  },
+  "variants": {
+    "a": {
+      "variant": "a",
+      "pairs": 285370,
+      "references": 30000,
+      "features": 27,
+      "oof_auc": 0.9991844687001943,
+      "hard_negatives_in_decision_set": 97673,
+      "comparable": true,
+      "macro_f05": 0.7604660293065704,
+      "tau_match": 0.2,
+      "tau_s": 0.4,
+      "margin": 0.05,
+      "train_seconds": 18.72,
+      "top_features": [
+        [
+          "name_idf_overlap",
+          3441.0
+        ],
+        [
+          "addr_char3_jaccard",
+          3240.2
+        ],
+        [
+          "struct_addr_len_ratio",
+          2883.8
+        ],
+        [
+          "name_token_jaccard",
+          2283.2
+        ],
+        [
+          "addr_token_jaccard",
+          2163.8
+        ],
+        [
+          "addr_street_jaccard",
+          1430.2
+        ],
+        [
+          "name_char3_jaccard",
+          1318.6
+        ],
+        [
+          "struct_name_len_ratio",
+          1113.2
+        ],
+        [
+          "name_jaro_winkler",
+          1076.6
+        ],
+        [
+          "name_ratio",
+          1072.8
+        ]
+      ],
+      "oof_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\oof_a.parquet",
+      "model_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\lgbm_variant_a.txt",
+      "signals_mode": "sidecar",
+      "signals_source": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_train_train.parquet",
+      "signals_joined": 0,
+      "feature_provenance": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\features\\features_variant_a.meta.json"
+    }
+  },
+  "winner": null
+}

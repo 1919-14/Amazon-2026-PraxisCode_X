@@ -1,0 +1,42 @@
+{
+  "config": {
+    "candidates": "..\\output\\candidate_pairs_val.tsv",
+    "split": "train",
+    "countries": [
+      "us",
+      "india",
+      "france"
+    ],
+    "easy_pool_size": 200000,
+    "max_references": null,
+    "seed": 42,
+    "variants": [
+      "a",
+      "b"
+    ]
+  },
+  "totals": {
+    "a": {
+      "pos": 59553,
+      "hard": 97673,
+      "easy": 128144,
+      "pairs": 285370,
+      "refs": 30000
+    },
+    "b": {
+      "pos": 59553,
+      "hard": 0,
+      "easy": 128144,
+      "pairs": 187697,
+      "refs": 30000
+    }
+  },
+  "per_country": {
+    "us": {
+      "references": 30000,
+      "pairs_a": 285370,
+      "pairs_b": 187697
+    }
+  },
+  "elapsed_seconds": 20.37
+}

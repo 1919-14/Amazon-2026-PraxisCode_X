@@ -1,0 +1,42 @@
+{
+  "config": {
+    "variant": "a",
+    "split": "train",
+    "n_folds": 5,
+    "n_bins": 15,
+    "min_ece_improvement": 0.005,
+    "enabled": true
+  },
+  "options": {
+    "none": {
+      "auc": 0.9883584121620557,
+      "brier": 0.04209926988023424,
+      "log_loss": 0.13853178264608912,
+      "ece": 0.006834376328663098,
+      "macro_f05": 0.7937463009861225
+    },
+    "global": {
+      "auc": 0.9883167938936532,
+      "brier": 0.0420182918965293,
+      "log_loss": 0.13751188959537758,
+      "ece": 0.00039113615679189597,
+      "macro_f05": 0.8049603776660327
+    },
+    "per_country": {
+      "auc": 0.9883167938936532,
+      "brier": 0.0420182918965293,
+      "log_loss": 0.13751188959537758,
+      "ece": 0.00039113615679189597,
+      "macro_f05": 0.8049603776660327
+    }
+  },
+  "baseline_ece": 0.006834376328663098,
+  "baseline_macro_f05": 0.7937463009861225,
+  "eligible": [
+    "global",
+    "per_country"
+  ],
+  "chosen": "global",
+  "calibrator_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\isotonic_a.json",
+  "calibrated_oof_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\oof_calibrated_a.parquet"
+}

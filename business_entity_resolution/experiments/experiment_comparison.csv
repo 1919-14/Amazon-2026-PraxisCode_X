@@ -1,0 +1,9 @@
+experiment,stage,split,refs,countries,ref_sample,topk,union_recall,rrf_recall_at5,rrf_recall_at20,final_candidate_recall,avg_k,runtime_seconds,peak_rss_mb,decision
+EXP-BASE-L3,name-only retrieval,train,train,india,100000,200,0.6374,,,,,963.84,2830.1,reference
+EXP-12A-L3,address text in C/D,train,train,india,100000,200,0.9223,0.7240,0.8421,,,1819.6,2894.0,KEEP
+EXP-BASE-L5,ratio 0.7 + k_min=1,train,train,india,100000,200,0.9223,,,0.4664,4.367,385.5,,rejected
+EXP-12A-L5,ratio 0.9 + k_min=6,train,train,india,100000,200,0.9223,,,0.7636,6.287,312.0,,KEEP
+EXP-CHAIN-A-L8,LightGBM variant A (hard negs),train,train,india,100000,200,,,,,,,,OOF macro F0.5=0.7937
+EXP-CHAIN-A-L9,isotonic calibration,train,train,india,100000,200,,,,,,,,OOF macro F0.5=0.8050;ECE 0.0068->0.0004
+EXP-CHAIN-A-L10,decision engine,train,train,india,100000,200,,,,0.7636,6.287,,,applied macro F0.5=0.8050; oracle ceiling=0.9023
+EXP-CHAIN-B-L8,LightGBM variant B (no hard negs),train,train,india,100000,200,,,,,,,,INVALID: 0.9023 equals oracle ceiling; excluded

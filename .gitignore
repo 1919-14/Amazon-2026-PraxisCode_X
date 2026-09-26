@@ -33,3 +33,6 @@ __MACOSX/
 .vscode/
 .idea/
 
+# Logs
+*.log
+

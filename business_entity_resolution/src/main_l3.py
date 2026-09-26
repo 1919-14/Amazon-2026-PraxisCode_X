@@ -59,6 +59,7 @@ from config import (
     L3_MAX_REFS,
     L3_MEMORY_BUDGET_MB,
     L3_REF_BLOCK_SIZE,
+    L3_RETRIEVAL_INCLUDE_ADDRESS,
     L3_VOCAB_SAMPLE,
     PATH_OUTPUT_DIR,
     PATH_TRAIN_GT,
@@ -118,6 +119,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--countries", nargs="+", default=list(L3_COUNTRIES))
     parser.add_argument("--topk", type=int, default=L3_CHANNEL_TOPK)
+    parser.add_argument(
+        "--addr-text",
+        action="store_true",
+        default=L3_RETRIEVAL_INCLUDE_ADDRESS,
+        help="Index/query the sparse channels (C/D) on 'name_core + addr_norm' "
+        "instead of the name alone, so an address match can retrieve a pair whose "
+        "names differ.",
+    )
     parser.add_argument("--max-candidates", type=int, default=L3_MAX_CANDIDATES)
     parser.add_argument("--max-refs", type=int, default=L3_MAX_REFS)
     parser.add_argument("--no-char", action="store_true", help="Disable channel D")
@@ -360,6 +369,7 @@ def main() -> None:
             block_size=args.block_size,
             vocab_sample=args.vocab_sample,
             enable_char=enable_char,
+            include_address=args.addr_text,
             max_candidates=args.max_candidates,
             progress=print,
         )
@@ -484,6 +494,7 @@ def main() -> None:
             "countries": args.countries,
             "topk": args.topk,
             "char_channel": enable_char,
+            "addr_text": args.addr_text,
             "max_candidates": args.max_candidates,
             "max_refs": args.max_refs,
             "block_size": args.block_size,

@@ -44,6 +44,7 @@ CANDIDATE_COLUMNS: list[str] = [
     "country_norm",
     "name_core",
     "name_norm",
+    "addr_norm",
     "addr_postal",
     "addr_house_number",
 ]

@@ -126,6 +126,19 @@ def evaluate_variant(df: pd.DataFrame, args, out_dir: Path) -> dict:
 
     # Evaluate on retrieved candidates only (matches inference-time inputs).
     retrieved = df["neg_type"].to_numpy() != "easy"
+    # A variant whose retrieved set holds no hard negatives cannot measure
+    # precision at all: every scored candidate is a true match, so the F0.5 here
+    # is a candidate-recall upper bound rather than a matcher score. Variant B
+    # (positives + easy negatives only) is exactly that case, so the flag keeps
+    # its number out of the winner comparison and out of the headline.
+    neg_types = df["neg_type"].to_numpy()
+    n_hard_in_decision = int((neg_types[retrieved] == "hard").sum())
+    comparable = n_hard_in_decision > 0
+    if not comparable:
+        print(
+            "  ⚠️  decision set has NO hard negatives — the macro F0.5 below is a "
+            "candidate-recall upper bound, NOT a matcher score"
+        )
     ref_ids = set(df["s1_id"].tolist())
     gt_map = load_ground_truth(ref_ids)
     scores = {
@@ -166,6 +179,8 @@ def evaluate_variant(df: pd.DataFrame, args, out_dir: Path) -> dict:
         "references": len(ref_ids),
         "features": len(feature_names),
         "oof_auc": auc,
+        "hard_negatives_in_decision_set": n_hard_in_decision,
+        "comparable": comparable,
         "macro_f05": best["macro_f05"],
         "tau_match": best["tau_match"],
         "tau_s": best["tau_s"],
@@ -215,18 +230,35 @@ def main() -> None:
         args.variant = variant
         report_entries[variant] = evaluate_variant(df, args, out_dir)
 
-    # A/B comparison
+    # A/B comparison. Only variants whose decision set contains hard negatives are
+    # comparable; the rest report an upper bound and are excluded from the pick.
     winner = None
     if len(report_entries) > 1:
-        a = report_entries.get("a", {}).get("macro_f05", -1.0)
-        b = report_entries.get("b", {}).get("macro_f05", -1.0)
-        winner = "a" if a >= b else "b"
         print("\n" + "=" * 65)
         print("🆚 A/B COMPARISON (out-of-fold macro F0.5)")
         print("=" * 65)
-        print(f"  Variant A (with hard negatives): {a:.4f}")
-        print(f"  Variant B (no hard negatives)  : {b:.4f}")
-        print(f"  → winner: Variant {winner.upper()}")
+        for variant, entry in sorted(report_entries.items()):
+            label = f"Variant {variant.upper()}"
+            if entry.get("comparable"):
+                print(
+                    f"  {label}: macro F0.5 = {entry['macro_f05']:.4f} "
+                    f"(hard negatives in decision set: {entry.get('hard_negatives_in_decision_set', 0):,})"
+                )
+            else:
+                print(
+                    f"  {label}: {entry['macro_f05']:.4f} — NOT COMPARABLE "
+                    f"(upper bound: no hard negatives in the decision set)"
+                )
+        winners = [
+            variant
+            for variant, entry in report_entries.items()
+            if entry.get("comparable")
+        ]
+        if winners:
+            winner = max(winners, key=lambda v: report_entries[v]["macro_f05"])
+            print(f"  → winner (comparable variants only): Variant {winner.upper()}")
+        else:
+            print("  → no comparable variant — refusing to declare a winner")
 
     report = {
         "config": {

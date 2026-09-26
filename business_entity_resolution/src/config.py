@@ -53,6 +53,15 @@ L3_C_MAX_DF_FRAC: float = 0.05
 L3_D_NGRAM_RANGE: tuple[int, int] = (2, 4)
 L3_D_MIN_DF: int = 2
 L3_D_MAX_DF_FRAC: float = 0.05
+
+# Include normalized address text in the sparse retrieval channels (C/D).
+# Name-only retrieval is a hard recall ceiling: two records can describe the same
+# business while the names differ (abbreviations, transliteration, word order),
+# and the address is then the only shared evidence that can retrieve the pair.
+# When enabled the channels index/query ``name_core + " " + addr_norm``. Kept as
+# an explicit switch so the two retrieval texts can be measured against each
+# other (L3 union recall) before the change is adopted.
+L3_RETRIEVAL_INCLUDE_ADDRESS: bool = False
 L3_ENABLE_CHAR_CHANNEL: bool = True
 
 # Sparse query batch size (kept for API compatibility; retrieval is per-query).
@@ -90,6 +99,12 @@ L3_MEMORY_BUDGET_MB: int = 1800
 # ---------------------------------------------------------------------------
 RRF_K_GRID: list[int] = [10, 20, 40, 60]
 
+# References processed per streaming batch in L4/L5. A full country bucket cannot
+# be held in Python objects (US test ~663k refs x ~370 candidates x 3 channels is
+# >10 GB of id strings), so both layers stream the upstream artifact in batches of
+# this many references and keep only the batch in flight resident.
+L4_REF_BATCH: int = 10_000
+
 # ---------------------------------------------------------------------------
 # Layer 5: Adaptive Candidate Truncation
 # ---------------------------------------------------------------------------
@@ -99,11 +114,20 @@ L5_K_MIN_TARGET: float = 5.5
 L5_K_MAX_TARGET: float = 7.0
 
 # Hard per-reference bounds applied after the adaptive score threshold.
-L5_K_MIN: int = 1
+#
+# k_min is a rank floor, not just a safety net: the relative score threshold alone
+# keeps almost nothing when a reference has one very strong top hit (an exact
+# name+postal key gives score 1.0, so a 0.7 cut drops every other candidate even
+# though the entity has several true matches). Measured on the India pool that
+# cost 30 recall points (46.6% at k_min=1 vs 76.4% at k_min=6, same 0.9 ratio),
+# because this is a multi-match problem, not a top-1 problem.
+L5_K_MIN: int = 6
 L5_K_MAX: int = 12
 
 # Default fraction of the top coarse score a candidate must retain to survive.
-L5_COARSE_RATIO: float = 0.5
+# Frozen at the value L5 tuning selects on the training pool; used verbatim on the
+# test split, where tuning is impossible (no ground truth).
+L5_COARSE_RATIO: float = 0.9
 L5_RATIO_GRID: list[float] = [0.3, 0.5, 0.7, 0.9]
 
 # Coarse score = w_rrf * normalized RRF + w_agree * channel agreement + w_exact * exact-key hit.

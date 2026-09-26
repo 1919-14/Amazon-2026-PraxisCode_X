@@ -381,6 +381,85 @@ def test_blocked_engine_matches_classic_engine() -> None:
             setattr(module, name, value)
 
 
+def test_address_text_does_not_change_channel_a() -> None:
+    """Widening the sparse text must not disturb channel A's exact-key lookups.
+
+    Channel A is keyed on the bare name, so a query built from
+    ``name_core + addr_norm`` silently matches nothing. This test pins that
+    invariant: the exact channel is identical with and without ``include_address``,
+    and it is non-empty (the regression produced an empty channel A).
+    """
+    names = ["acme corporation", "globex corporation", "initech solutions"]
+    candidates = pd.DataFrame(
+        {
+            "entity_id": [f"S2-{i}" for i in range(3)],
+            "country_norm": "us",
+            "name_core": names,
+            "name_norm": names,
+            "addr_norm": ["1 market street san francisco", "2 oak avenue austin", "3 pine road boston"],
+            "addr_postal": ["94103", "73301", "02108"],
+            "addr_house_number": ["1", "2", "3"],
+        }
+    )
+    references = pd.DataFrame(
+        {
+            "entity_id": ["S1-0", "S1-1", "S1-2"],
+            "country_norm": "us",
+            "name_core": ["acme corporation", "globex corporation", "initech solutions"],
+            "name_norm": ["acme corporation", "globex corporation", "initech solutions"],
+            "addr_norm": ["1 market street san francisco", "9 elsewhere", "3 pine road boston"],
+            "addr_postal": ["94103", "99999", "02108"],
+            "addr_house_number": ["1", "9", "3"],
+        }
+    )
+
+    patched = {
+        name: getattr(blocked, name) for name in ("L3_C_MIN_DF", "L3_C_MAX_DF_FRAC", "L3_D_MIN_DF", "L3_D_MAX_DF_FRAC")
+    }
+    blocked.L3_C_MIN_DF = 1
+    blocked.L3_C_MAX_DF_FRAC = 1.0
+    blocked.L3_D_MIN_DF = 1
+    blocked.L3_D_MAX_DF_FRAC = 1.0
+
+    blocks = [candidates.reset_index(drop=True)]
+    original_iter = blocked.iter_country_candidate_blocks
+    blocked.iter_country_candidate_blocks = (  # type: ignore[assignment]
+        lambda split, country, block_size, max_candidates=None: iter(blocks)
+    )
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            def build(include_address: bool):
+                meta = blocked.build_country_index(
+                    "test",
+                    "us",
+                    refs="all",
+                    scratch_dir=Path(tmp) / f"scratch_{include_address}",
+                    block_size=10,
+                    vocab_sample=100,
+                    enable_char=True,
+                    include_address=include_address,
+                    progress=lambda *a, **k: None,
+                )
+                result = blocked.query_reference_block(meta, references, topk=5)
+                decoded = {
+                    channel: blocked.decode_ids(meta, result.keys[channel]) for channel in ("A", "C", "D")
+                }
+                meta.cleanup()
+                return decoded
+
+            name_only = build(False)
+            widened = build(True)
+
+            assert name_only["A"] == widened["A"], "channel A must ignore the widened text"
+            assert widened["A"][0] == ["S2-0"], widened["A"]
+            # The widened text must still retrieve the identical name+address first.
+            assert widened["C"][0][0] == "S2-0", widened["C"]
+    finally:
+        blocked.iter_country_candidate_blocks = original_iter
+        for name, value in patched.items():
+            setattr(blocked, name, value)
+
+
 def test_recall_accumulator_matches_batch_stats() -> None:
     """Streaming recall must equal the whole-list measurement, split into batches."""
     refs = ["S1-1", "S1-2", "S1-3", "S1-4"]
@@ -453,6 +532,7 @@ def run_all_tests() -> bool:
         ("Shared-vocab block build matches classic", test_shared_vocab_block_build_matches_classic),
         ("Top-k merge bounds + ordering", test_merge_topk_keeps_best_per_reference),
         ("Blocked engine matches classic engine", test_blocked_engine_matches_classic_engine),
+        ("Address text preserves channel A", test_address_text_does_not_change_channel_a),
         ("Recall accumulator matches batch stats", test_recall_accumulator_matches_batch_stats),
         ("Aggregate stats sum countries", test_aggregate_stats_sums_countries_exactly),
     ]

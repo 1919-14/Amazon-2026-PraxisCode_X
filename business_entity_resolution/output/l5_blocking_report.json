@@ -1,0 +1,143 @@
+{
+  "config": {
+    "split": "test",
+    "refs": "all",
+    "countries": [
+      "us",
+      "india",
+      "france"
+    ],
+    "ratio_grid": [
+      0.9
+    ],
+    "chosen_ratio": 0.9,
+    "k_min": 6,
+    "k_max": 12,
+    "ref_batch": 10000,
+    "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet"
+  },
+  "references": 1732544,
+  "expected_references": 1732544,
+  "coverage": {
+    "us": 1.0,
+    "india": 1.0,
+    "france": 1.0
+  },
+  "candidates_kept": 10395698,
+  "avg_k": 6.000250498688634,
+  "candidate_recall": null,
+  "reduction_ratio": 0.9999993981446478,
+  "missing_artifacts": [],
+  "run": "test_all",
+  "elapsed_seconds": 454.63,
+  "runs": {
+    "train_val": {
+      "config": {
+        "split": "train",
+        "refs": "val",
+        "countries": [
+          "us",
+          "india",
+          "france"
+        ],
+        "ratio_grid": [
+          0.3,
+          0.5,
+          0.7,
+          0.9
+        ],
+        "chosen_ratio": 0.7,
+        "k_min": 6,
+        "k_max": 12,
+        "ref_batch": 10000,
+        "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_train_val.parquet"
+      },
+      "references": 30000,
+      "expected_references": 30000,
+      "coverage": {
+        "us": 1.0
+      },
+      "candidates_kept": 206378,
+      "avg_k": 6.879266666666667,
+      "candidate_recall": 0.5733913596056267,
+      "reduction_ratio": 0.9999993334185382,
+      "missing_artifacts": [
+        "india",
+        "france"
+      ],
+      "run": "train_val",
+      "elapsed_seconds": 8.93
+    },
+    "train_train": {
+      "config": {
+        "split": "train",
+        "refs": "train",
+        "countries": [
+          "india"
+        ],
+        "ratio_grid": [
+          0.3,
+          0.5,
+          0.7,
+          0.9
+        ],
+        "chosen_ratio": 0.7,
+        "k_min": 6,
+        "k_max": 12,
+        "ref_batch": 10000,
+        "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_train_train.parquet"
+      },
+      "references": 100000,
+      "expected_references": 100000,
+      "coverage": {
+        "india": 1.0
+      },
+      "candidates_kept": 635735,
+      "avg_k": 6.35735,
+      "candidate_recall": 0.7748224799080189,
+      "reduction_ratio": 0.9999993839907855,
+      "missing_artifacts": [],
+      "run": "train_train",
+      "elapsed_seconds": 349.87
+    },
+    "test_all": {
+      "config": {
+        "split": "test",
+        "refs": "all",
+        "countries": [
+          "us",
+          "india",
+          "france"
+        ],
+        "ratio_grid": [
+          0.9
+        ],
+        "chosen_ratio": 0.9,
+        "k_min": 6,
+        "k_max": 12,
+        "ref_batch": 10000,
+        "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet"
+      },
+      "references": 1732544,
+      "expected_references": 1732544,
+      "coverage": {
+        "us": 1.0,
+        "india": 1.0,
+        "france": 1.0
+      },
+      "candidates_kept": 10395698,
+      "avg_k": 6.000250498688634,
+      "candidate_recall": null,
+      "reduction_ratio": 0.9999993981446478,
+      "missing_artifacts": [],
+      "run": "test_all",
+      "elapsed_seconds": 454.63
+    }
+  },
+  "latest_run": "test_all",
+  "run_keys": [
+    "test_all",
+    "train_train",
+    "train_val"
+  ]
+}

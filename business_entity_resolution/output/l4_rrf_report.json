@@ -1,0 +1,376 @@
+{
+  "config": {
+    "split": "test",
+    "refs": "all",
+    "countries": [
+      "us",
+      "india",
+      "france"
+    ],
+    "k_grid": [
+      10,
+      20,
+      40,
+      60
+    ],
+    "best_n": 10,
+    "cutoffs": [
+      5,
+      10,
+      20,
+      50
+    ],
+    "ref_batch": 10000
+  },
+  "overall_k_grid": {},
+  "best_k": null,
+  "per_country": {
+    "us": {
+      "chosen_k": 10,
+      "k_grid": {}
+    },
+    "india": {
+      "chosen_k": 10,
+      "k_grid": {}
+    },
+    "france": {
+      "chosen_k": 10,
+      "k_grid": {}
+    }
+  },
+  "n_references": 1732544,
+  "elapsed_seconds": 268.4,
+  "coverage": {
+    "layer": "l3",
+    "split": "test",
+    "refs": "all",
+    "countries": [
+      "us",
+      "india",
+      "france"
+    ],
+    "present": [
+      "us",
+      "india",
+      "france"
+    ],
+    "missing": [],
+    "out_of_scope": [],
+    "missing_references": {},
+    "artifact_rows": {
+      "us": 663106,
+      "india": 809986,
+      "france": 259452
+    },
+    "coverage": {
+      "us": 1.0,
+      "india": 1.0,
+      "france": 1.0
+    },
+    "truncated": [],
+    "ok": true
+  },
+  "run": "test_all",
+  "runs": {
+    "train_val": {
+      "config": {
+        "split": "train",
+        "refs": "val",
+        "countries": [
+          "us",
+          "india",
+          "france"
+        ],
+        "k_grid": [
+          10,
+          20,
+          40,
+          60
+        ],
+        "best_n": 10,
+        "cutoffs": [
+          5,
+          10,
+          20,
+          50
+        ],
+        "ref_batch": 10000
+      },
+      "overall_k_grid": {
+        "k=10": {
+          "recall@5": 0.528263737110176,
+          "recall@10": 0.6072250411607822,
+          "recall@20": 0.6522082398590424,
+          "recall@50": 0.6954968660036009
+        },
+        "k=20": {
+          "recall@5": 0.5284081609073665,
+          "recall@10": 0.6074176062237029,
+          "recall@20": 0.6523430354030868,
+          "recall@50": 0.6954968660036009
+        },
+        "k=40": {
+          "recall@5": 0.5283985326542205,
+          "recall@10": 0.6074176062237029,
+          "recall@20": 0.6524008049219631,
+          "recall@50": 0.6954968660036009
+        },
+        "k=60": {
+          "recall@5": 0.5283985326542205,
+          "recall@10": 0.6074079779705568,
+          "recall@20": 0.6524008049219631,
+          "recall@50": 0.6954968660036009
+        }
+      },
+      "best_k": 20,
+      "per_country": {
+        "us": {
+          "chosen_k": 20,
+          "k_grid": {
+            "k=10": {
+              "recall@5": 0.528263737110176,
+              "recall@10": 0.6072250411607822,
+              "recall@20": 0.6522082398590424,
+              "recall@50": 0.6954968660036009
+            },
+            "k=20": {
+              "recall@5": 0.5284081609073665,
+              "recall@10": 0.6074176062237029,
+              "recall@20": 0.6523430354030868,
+              "recall@50": 0.6954968660036009
+            },
+            "k=40": {
+              "recall@5": 0.5283985326542205,
+              "recall@10": 0.6074176062237029,
+              "recall@20": 0.6524008049219631,
+              "recall@50": 0.6954968660036009
+            },
+            "k=60": {
+              "recall@5": 0.5283985326542205,
+              "recall@10": 0.6074079779705568,
+              "recall@20": 0.6524008049219631,
+              "recall@50": 0.6954968660036009
+            }
+          }
+        }
+      },
+      "n_references": 30000,
+      "elapsed_seconds": 7.57,
+      "coverage": {
+        "layer": "l3",
+        "split": "train",
+        "refs": "val",
+        "countries": [
+          "us",
+          "india",
+          "france"
+        ],
+        "present": [
+          "us"
+        ],
+        "missing": [],
+        "out_of_scope": [
+          "india",
+          "france"
+        ],
+        "missing_references": {},
+        "artifact_rows": {
+          "us": 30000
+        },
+        "coverage": {
+          "us": 1.0
+        },
+        "truncated": [],
+        "ok": true,
+        "note": "no in-scope references for india, france in this scope; skipped (expected, not a coverage gap)"
+      },
+      "run": "train_val"
+    },
+    "train_train": {
+      "config": {
+        "split": "train",
+        "refs": "train",
+        "countries": [
+          "india"
+        ],
+        "k_grid": [
+          10,
+          20,
+          40,
+          60
+        ],
+        "best_n": 10,
+        "cutoffs": [
+          5,
+          10,
+          20,
+          50
+        ],
+        "ref_batch": 10000
+      },
+      "overall_k_grid": {
+        "k=10": {
+          "recall@5": 0.7308714517648011,
+          "recall@10": 0.8245223279542868,
+          "recall@20": 0.8605174515683589,
+          "recall@50": 0.884584496097158
+        },
+        "k=20": {
+          "recall@5": 0.7275232697207633,
+          "recall@10": 0.8164190918597866,
+          "recall@20": 0.8560715049197187,
+          "recall@50": 0.8845064970331468
+        },
+        "k=40": {
+          "recall@5": 0.7250128554012908,
+          "recall@10": 0.8098989478792921,
+          "recall@20": 0.8465093974427862,
+          "recall@50": 0.8831487355485067
+        },
+        "k=60": {
+          "recall@5": 0.7240306449655938,
+          "recall@10": 0.8075271985625061,
+          "recall@20": 0.8421096724617082,
+          "recall@50": 0.8781972394109049
+        }
+      },
+      "best_k": 10,
+      "per_country": {
+        "india": {
+          "chosen_k": 10,
+          "k_grid": {
+            "k=10": {
+              "recall@5": 0.7308714517648011,
+              "recall@10": 0.8245223279542868,
+              "recall@20": 0.8605174515683589,
+              "recall@50": 0.884584496097158
+            },
+            "k=20": {
+              "recall@5": 0.7275232697207633,
+              "recall@10": 0.8164190918597866,
+              "recall@20": 0.8560715049197187,
+              "recall@50": 0.8845064970331468
+            },
+            "k=40": {
+              "recall@5": 0.7250128554012908,
+              "recall@10": 0.8098989478792921,
+              "recall@20": 0.8465093974427862,
+              "recall@50": 0.8831487355485067
+            },
+            "k=60": {
+              "recall@5": 0.7240306449655938,
+              "recall@10": 0.8075271985625061,
+              "recall@20": 0.8421096724617082,
+              "recall@50": 0.8781972394109049
+            }
+          }
+        }
+      },
+      "n_references": 100000,
+      "elapsed_seconds": 330.38,
+      "coverage": {
+        "layer": "l3",
+        "split": "train",
+        "refs": "train",
+        "countries": [
+          "india"
+        ],
+        "present": [
+          "india"
+        ],
+        "missing": [],
+        "out_of_scope": [],
+        "missing_references": {},
+        "artifact_rows": {
+          "india": 100000
+        },
+        "coverage": {
+          "india": 1.0
+        },
+        "truncated": [],
+        "ok": true
+      },
+      "run": "train_train"
+    },
+    "test_all": {
+      "config": {
+        "split": "test",
+        "refs": "all",
+        "countries": [
+          "us",
+          "india",
+          "france"
+        ],
+        "k_grid": [
+          10,
+          20,
+          40,
+          60
+        ],
+        "best_n": 10,
+        "cutoffs": [
+          5,
+          10,
+          20,
+          50
+        ],
+        "ref_batch": 10000
+      },
+      "overall_k_grid": {},
+      "best_k": null,
+      "per_country": {
+        "us": {
+          "chosen_k": 10,
+          "k_grid": {}
+        },
+        "india": {
+          "chosen_k": 10,
+          "k_grid": {}
+        },
+        "france": {
+          "chosen_k": 10,
+          "k_grid": {}
+        }
+      },
+      "n_references": 1732544,
+      "elapsed_seconds": 268.4,
+      "coverage": {
+        "layer": "l3",
+        "split": "test",
+        "refs": "all",
+        "countries": [
+          "us",
+          "india",
+          "france"
+        ],
+        "present": [
+          "us",
+          "india",
+          "france"
+        ],
+        "missing": [],
+        "out_of_scope": [],
+        "missing_references": {},
+        "artifact_rows": {
+          "us": 663106,
+          "india": 809986,
+          "france": 259452
+        },
+        "coverage": {
+          "us": 1.0,
+          "india": 1.0,
+          "france": 1.0
+        },
+        "truncated": [],
+        "ok": true
+      },
+      "run": "test_all"
+    }
+  },
+  "latest_run": "test_all",
+  "run_keys": [
+    "test_all",
+    "train_train",
+    "train_val"
+  ]
+}

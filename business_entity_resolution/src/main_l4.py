@@ -9,6 +9,17 @@ for Layer 5:
     artifacts/blocking/l4_<split>_<refs>_country=<c>.parquet
     output/l4_rrf_report.json / .md
 
+Memory
+------
+A full country bucket is far too large to hold in Python objects: the US test
+bucket is 663k references x ~370 candidates x 3 channels, i.e. ~700M id strings
+(>10 GB), and the earlier implementation loaded exactly that. The layer therefore
+streams the L3 artifact in reference batches: the k-grid tuning pass accumulates
+only integer hit counts, and the write pass emits each batch's rows before
+releasing it. Peak memory is one batch (~``--ref-batch`` references), not the
+country. The tuning pass re-reads the artifact (two streaming passes) because the
+chosen ``k`` has to be known before any output row can be encoded.
+
 Usage
 -----
 # Fuse with the best k on validation:
@@ -39,10 +50,13 @@ for _p in (str(SRC_DIR), str(PROJECT_ROOT)):
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pandas as pd
 
 from config import (
     L3_COUNTRIES,
+    L4_REF_BATCH,
     PATH_OUTPUT_DIR,
     RRF_K_GRID,
 )
@@ -66,6 +80,15 @@ CHANNEL_COLUMNS = {
     "channel_c": CHANNEL_C,
     "channel_d": CHANNEL_D,
 }
+
+L4_SCHEMA = pa.schema(
+    [
+        ("source1_entity_id", pa.string()),
+        ("country", pa.string()),
+        ("candidate_entity_ids", pa.list_(pa.string())),
+        ("fused_scores", pa.list_(pa.float64())),
+    ]
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,6 +116,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=[5, 10, 20, 50],
         help="Recall@N cutoffs reported for each k.",
+    )
+    parser.add_argument(
+        "--ref-batch",
+        type=int,
+        default=L4_REF_BATCH,
+        help="References per streaming batch (bounds peak memory).",
     )
     parser.add_argument(
         "--reuse-existing",
@@ -123,13 +152,59 @@ def _to_list(value) -> list[str]:
 
 
 def load_l3_artifact(path: Path) -> tuple[list[str], dict[str, list[list[str]]]]:
-    """Load channel candidate lists from a Layer 3 parquet artifact."""
+    """Load channel candidate lists from a Layer 3 parquet artifact.
+
+    Kept for callers that genuinely need a whole artifact in memory (small
+    buckets, tests). Bulk layers should prefer :func:`iter_l3_artifact_batches`.
+    """
     df = pd.read_parquet(path, columns=["source1_entity_id"] + list(CHANNEL_COLUMNS))
     reference_ids = [str(v) for v in df["source1_entity_id"].tolist()]
     channels: dict[str, list[list[str]]] = {}
     for column, channel in CHANNEL_COLUMNS.items():
         channels[channel] = [_to_list(v) for v in df[column].tolist()]
     return reference_ids, channels
+
+
+def iter_l3_artifact_batches(
+    path: Path,
+    batch_size: int,
+):
+    """Yield ``(reference_ids, channels)`` streaming batches from an L3 artifact.
+
+    ``channels`` maps a channel name to a list of candidate-id lists aligned with
+    ``reference_ids`` for *this batch only*, so nothing larger than the batch is
+    ever resident.
+    """
+    parquet_file = pq.ParquetFile(str(path))
+    columns = ["source1_entity_id"] + list(CHANNEL_COLUMNS)
+    for batch in parquet_file.iter_batches(batch_size=batch_size, columns=columns):
+        data = batch.to_pydict()
+        reference_ids = [str(v) for v in data["source1_entity_id"]]
+        channels = {
+            channel: [_to_list(v) for v in data[column]]
+            for column, channel in CHANNEL_COLUMNS.items()
+        }
+        yield reference_ids, channels
+
+
+def _write_fused_batch(
+    writer: pq.ParquetWriter,
+    reference_ids: list[str],
+    fused,
+    country: str,
+) -> None:
+    """Append one batch of fused candidates to the output artifact."""
+    writer.write_table(
+        pa.table(
+            {
+                "source1_entity_id": reference_ids,
+                "country": [country] * len(reference_ids),
+                "candidate_entity_ids": [[candidate for candidate, _ in row] for row in fused],
+                "fused_scores": [[float(score) for _, score in row] for row in fused],
+            },
+            schema=L4_SCHEMA,
+        )
+    )
 
 
 def main() -> None:
@@ -143,6 +218,7 @@ def main() -> None:
     print("=" * 65)
     print(f"  split={args.split} | refs={args.refs} | countries={args.countries}")
     print(f"  k-grid={k_grid} | best-n={args.best_n} | cutoffs={cutoffs}")
+    print(f"  ref-batch={args.ref_batch:,} (streamed, bounds memory)")
 
     coverage = check_country_artifacts(
         "l3",
@@ -184,8 +260,9 @@ def main() -> None:
             print("      run main_l3.py for this country first — skipping")
             continue
 
-        if args.reuse_existing and l4_artifact_path(args.split, args.refs, country).exists():
-            reused_rows = pd.read_parquet(l4_artifact_path(args.split, args.refs, country)).shape[0]
+        out_path = l4_artifact_path(args.split, args.refs, country)
+        if args.reuse_existing and out_path.exists():
+            reused_rows = pq.ParquetFile(str(out_path)).metadata.num_rows
             print(
                 f"  ♻️  reusing existing fused artifact ({reused_rows:,} references) — "
                 "skipped from the k-grid report"
@@ -198,67 +275,87 @@ def main() -> None:
             }
             continue
 
-        reference_ids, channels = load_l3_artifact(source_path)
-        total_references += len(reference_ids)
-        print(f"  references: {len(reference_ids):,} | artifact: {source_path.name}")
-
-        if not reference_ids:
-            continue
-
+        # ------------------------------------------------------------------
+        # Pass 1: tune k (streamed; accumulates counts only)
+        # ------------------------------------------------------------------
+        best_k = k_grid[0]
         if has_ground_truth:
             country_stats: dict[str, dict] = {}
-            best_k = k_grid[0]
             best_score = -1.0
-            chosen_fused = None
+            total_pairs = 0
+            n_refs = 0
+            # Per-country hit counts, so a later country's stats cannot inherit an
+            # earlier country's hits (grid_hits is the cross-country total).
+            country_hits: dict[int, dict[int, int]] = {
+                k: {cut: 0 for cut in cutoffs} for k in k_grid
+            }
+
+            for reference_ids, channels in iter_l3_artifact_batches(source_path, args.ref_batch):
+                n_refs += len(reference_ids)
+                batch_total_pairs = 0
+                for k in k_grid:
+                    fused = fuse(channels, k=k)
+                    ranked = ranked_ids(fused)
+                    hits, batch_total_pairs = ranked_recall_counts(
+                        reference_ids, ranked, gt_map, cutoffs
+                    )
+                    for cut in cutoffs:
+                        country_hits[k][cut] += hits[cut]
+                        grid_hits[k][cut] += hits[cut]
+                    del ranked, fused
+
+                # The true-pair count is independent of k, so it is added once per
+                # batch (adding it inside the k loop would inflate the denominator
+                # per k and deflate every recall figure).
+                total_pairs += batch_total_pairs
+                del channels
+                gc.collect()
+
+            total_references += n_refs
 
             for k in k_grid:
-                fused = fuse(channels, k=k)
-                ranked = ranked_ids(fused)
-                hits, total_pairs = ranked_recall_counts(reference_ids, ranked, gt_map, cutoffs)
-                for cut in cutoffs:
-                    grid_hits[k][cut] += hits[cut]
                 k_stats = {
-                    f"recall@{cut}": (hits[cut] / total_pairs if total_pairs else 0.0)
+                    f"recall@{cut}": (country_hits[k][cut] / total_pairs if total_pairs else 0.0)
                     for cut in cutoffs
                 }
                 country_stats[f"k={k}"] = k_stats
-
                 score = k_stats.get(f"recall@{args.best_n}", 0.0)
                 if score > best_score:
                     best_score = score
                     best_k = k
-                    chosen_fused = fused  # keep this k's ranking for the artifact
-                del ranked
-                gc.collect()
 
-            # The true-pair count is independent of k, so accumulate it once.
             grid_total_pairs += total_pairs
-
-            assert chosen_fused is not None
             per_country_report[country] = {"chosen_k": best_k, "k_grid": country_stats}
+            print(f"  references: {n_refs:,} | artifact: {source_path.name}")
             print(f"  chosen k = {best_k}")
             for cut in cutoffs:
-                print(f"    recall@{cut:<3} = {country_stats[f'k={best_k}'][f'recall@{cut}'] * 100:6.2f}%")
+                print(
+                    f"    recall@{cut:<3} = "
+                    f"{country_stats[f'k={best_k}'][f'recall@{cut}'] * 100:6.2f}%"
+                )
         else:
-            best_k = k_grid[0]
-            chosen_fused = fuse(channels, k=best_k)
-            per_country_report[country] = {"chosen_k": best_k, "k_grid": {}}
             print(f"  no ground truth — using fixed k = {best_k}")
+            per_country_report[country] = {"chosen_k": best_k, "k_grid": {}}
 
-        out_path = l4_artifact_path(args.split, args.refs, country)
+        # ------------------------------------------------------------------
+        # Pass 2: write the fused artifact (streamed)
+        # ------------------------------------------------------------------
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(
-            {
-                "source1_entity_id": reference_ids,
-                "country": country,
-                "candidate_entity_ids": [[candidate for candidate, _ in row] for row in chosen_fused],
-                "fused_scores": [[float(score) for _, score in row] for row in chosen_fused],
-            }
-        ).to_parquet(out_path, engine="pyarrow", compression="snappy", index=False)
-        print(f"  saved fused candidates: {out_path}")
+        writer = pq.ParquetWriter(str(out_path), L4_SCHEMA)
+        written = 0
+        try:
+            for reference_ids, channels in iter_l3_artifact_batches(source_path, args.ref_batch):
+                fused = fuse(channels, k=best_k)
+                _write_fused_batch(writer, reference_ids, fused, country)
+                written += len(reference_ids)
+                del fused, channels
+                gc.collect()
+        finally:
+            writer.close()
 
-        del channels, chosen_fused
-        gc.collect()
+        if not has_ground_truth:
+            total_references += written
+        print(f"  saved fused candidates: {out_path} ({written:,} references)")
 
     elapsed = time.time() - t0
 
@@ -303,6 +400,7 @@ def main() -> None:
             "k_grid": k_grid,
             "best_n": args.best_n,
             "cutoffs": cutoffs,
+            "ref_batch": args.ref_batch,
         },
         "overall_k_grid": overall_grid,
         "best_k": best_overall_k,
