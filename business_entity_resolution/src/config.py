@@ -68,6 +68,24 @@ L3_MAX_CANDIDATES: int | None = None
 L3_MAX_REFS: int | None = None
 
 # ---------------------------------------------------------------------------
+# Layer 3 memory budget: block-wise, disk-backed candidate index
+# ---------------------------------------------------------------------------
+# The naive design held one TF-IDF CSC matrix for an entire country bucket plus
+# every candidate list for every reference. For the train buckets (6.2M / 4.1M
+# candidates) that is multiple GB of matrix plus a Python list of ~10^8 id
+# strings - far past the 2 GB budget. The block-wise engine instead keeps one
+# candidate block index resident at a time and streams references past it.
+L3_BLOCK_SIZE: int = 500_000
+L3_REF_BLOCK_SIZE: int = 250_000
+# Documents sampled to fit the shared vocabulary + IDF (one sample per channel,
+# so every block scores in the same space and scores stay comparable).
+L3_VOCAB_SAMPLE: int = 300_000
+# Keep the scratch index after a run (debugging); otherwise it is removed.
+L3_KEEP_SCRATCH: bool = False
+# Warn when peak RSS exceeds this budget (MB).
+L3_MEMORY_BUDGET_MB: int = 1800
+
+# ---------------------------------------------------------------------------
 # Layer 4: Reciprocal Rank Fusion
 # ---------------------------------------------------------------------------
 RRF_K_GRID: list[int] = [10, 20, 40, 60]

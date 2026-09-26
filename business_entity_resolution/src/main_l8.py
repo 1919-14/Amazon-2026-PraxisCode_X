@@ -86,10 +86,31 @@ def tune_thresholds(scores: dict, gt_map: dict, tau_match_grid, tau_s_grid, marg
     return best or {"macro_f05": 0.0, "tau_match": 0.0, "tau_s": 0.0, "margin": margin}
 
 
+def feature_provenance(features_dir: str, variant: str) -> dict:
+    """Read the Layer 7 provenance sidecar next to a feature table.
+
+    Records whether the retrieval-signal features were real values or zeros, so
+    Layer 11 can refuse to score the exported booster with the other convention.
+    """
+    meta_path = Path(features_dir) / f"features_variant_{variant}.meta.json"
+    if not meta_path.exists():
+        return {}
+    try:
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def evaluate_variant(df: pd.DataFrame, args, out_dir: Path) -> dict:
     """Train, evaluate and export one variant; return its report entry."""
     feature_names = [name for name in FEATURE_NAMES if name in df.columns]
+    provenance = feature_provenance(args.features_dir, args.variant)
     print(f"\n{'─' * 65}\n  Training variant ({len(df):,} pairs, {len(feature_names)} features)\n{'─' * 65}")
+    if provenance:
+        print(
+            f"  retrieval signals: {provenance.get('signals_mode')} "
+            f"({provenance.get('signals_joined', 0):,} pairs joined)"
+        )
 
     t0 = time.time()
     oof, models, importances = train_oof(
@@ -153,6 +174,12 @@ def evaluate_variant(df: pd.DataFrame, args, out_dir: Path) -> dict:
         "top_features": top,
         "oof_path": str(oof_path),
         "model_path": str(model_path),
+        "signals_mode": provenance.get("signals_mode"),
+        "signals_source": provenance.get("signals_source"),
+        "signals_joined": provenance.get("signals_joined"),
+        "feature_provenance": str(
+            Path(args.features_dir) / f"features_variant_{args.variant}.meta.json"
+        ),
     }
 
 

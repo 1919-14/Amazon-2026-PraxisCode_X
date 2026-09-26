@@ -164,8 +164,55 @@ Our solution implements a disciplined, highly modular **14-Layer Refined Archite
   * Legal suffix canonicalization (`Pvt Ltd`, `LLC`, `SARL`, `Inc`, `Corp` $\rightarrow$ canonical form).
   * Structured address parsing (`house_num`, `street`, `city`, `postal`, `state`, `country`) & digit sequence extraction.
 
+### **Coverage, parity & memory hardening (verified)**
+
+Seven failure modes found by auditing the pipeline are fixed and regression-tested:
+
+1. **No silent coverage loss** — `utils/coverage.py` runs a preflight on L4/L5/L11:
+   every requested country must have a complete upstream artifact, and the output
+   must cover every Source-1 entity of the split. A truncated artifact (a dev cap
+   left on disk) is detected too, and the message names the country, the reference
+   count at stake and the exact command that fixes it. Guards exit with code 2
+   unless `--allow-missing-countries` / `--allow-partial-coverage` is passed.
+   `--countries` takes space- or comma-separated buckets; a bucket with no in-scope
+   references (a typo, or France on the train split) is reported as out of scope
+   instead of silently counting as zero references at risk, and a run where *no*
+   requested bucket exists fails outright.
+2. **Memory-bounded blocking** — Layer 3 is now block-wise and disk-backed
+   (`l3_l5_blocking/blocked.py`): one candidate block index is resident at a time,
+   references stream past it, and rows are decoded/written in chunks. Peak RSS is a
+   function of the block size, not the country bucket (`--block-size`,
+   `--ref-block-size`, `--vocab-sample`).
+3. **Train/serve signal parity** — L5 writes a retrieval-signal sidecar next to the
+   candidate set; L7 and L11 read *the same* artifact (L11 in lockstep, so it never
+   holds ~10M pairs), and L11 refuses to score a booster trained with signals when
+   the sidecar is missing.
+4. **Tuned open-set policy** — `main_l10_open_set.py` holds a *pseudo-open* country
+   out of training and grid searches the France veto parameters against real ground
+   truth, then previews how many France entities a threshold would empty.
+5. **Report history** — `utils/reports.py` merges every run into `runs[...]` so a
+   multi-country sweep no longer overwrites the previous country's measurements.
+6. **Deterministic retrieval** — the rarest-term selection and the top-k cut are
+   canonical under ties, so the blocking artifact is reproducible run to run.
+7. **Dead code removed** — the stale `src/metrics.py` / `src/test_core.py` pair and
+   the duplicated nested walkthrough are gone; the official F0.5 formula is now
+   asserted against the problem statement's worked example in the L1 tests.
+
 ### **L3 – L5: Fast Stratified Blocking & Adaptive Candidate Truncation**
-* **L3 Country Stratification**: Records are partitioned into independent country buckets (`US`, `India`, `France`). Zero cross-country overhead.
+* **L3 Country Stratification**: Records are partitioned into independent country buckets (`US`, `India`, `France`). Zero cross-country overhead. Each bucket is indexed block-by-block against a shared, sampled vocabulary so scores stay comparable across blocks and peak memory stays bounded.
+
+#### Training-pool budget (measured)
+
+Blocking cost scales as `references x candidate pool`. Measured: the France test bucket (259,452 references, 1.43M candidate pool) took **1,180 s**. Fully blocking all 2.2M training references would cost roughly ten more hours of L3 alone, so the supported workflow is a deterministic reference sample for the *training* pool:
+
+```bash
+python business_entity_resolution/src/main_l3.py --refs train --ref-sample 400000
+python business_entity_resolution/src/main_l4.py --refs train
+python business_entity_resolution/src/main_l5.py --refs train   # -> candidate_pairs_train.tsv + signal sidecar
+python business_entity_resolution/src/main_l6.py --candidates business_entity_resolution/output/candidate_pairs_train.tsv
+```
+
+The sample is reproducible (`--ref-seed`) and recorded in the L3 report, and the coverage preflight reads that record so a sampled run is never mistaken for a truncated one. `--reuse-existing` resumes an interrupted multi-country sweep.
 * **Multi-Channel Fast Retrieval**:
   * *L3b Channel A*: Exact normalized name + postal/house hash.
   * *L3c Channel C*: High-IDF token inverted index (filters out stopwords).
@@ -209,16 +256,27 @@ Our solution implements a disciplined, highly modular **14-Layer Refined Archite
     ├── output/
     │   ├── audit_summary.json          # Dataset audit counts & missing rates
     │   ├── deep_data_profile.json      # Full statistical breakdown
+    │   ├── l*_report.json / .md        # Per-layer reports (history preserved per run)
+    │   ├── l10_open_set_policy.json    # Tuned open-set (France) veto policy
     │   ├── matching_results.tsv        # Final entity matches (Leaderboard Upload)
     │   ├── candidate_pairs.tsv         # Blocking candidate pairs (Audit Evaluation)
     │   └── blocking_report.md          # Candidate recall & reduction ratio report
     └── src/
-        ├── inspect_samples.py          # Data profiling & noise pattern inspector
-        ├── audit.py                    # Streaming dataset validation & distribution checker
-        ├── deep_profile.py             # Advanced statistical profiling script
-        ├── metrics.py                  # Official macro F0.5 metric implementation
-        ├── test_core.py                # Core unit tests for metrics and data format
-        └── requirements.txt            # Pinned dependencies
+        ├── config.py / schemas.py / ingest.py / audit.py   # L0 foundation
+        ├── deep_profile.py / inspect_samples.py            # Phase-0 profiling scripts
+        ├── main_l0.py … main_l11.py                        # One entry point per layer
+        ├── main_l10_open_set.py                            # Pseudo-open-set policy tuner
+        ├── l1_validation/       # Split + official macro F0.5 scorer and threshold eval
+        ├── l2_normalization/    # NFKC/accent/legal-suffix/address normalizer
+        ├── l3_l5_blocking/      # block-wise engine, channels, RRF, truncation, paths
+        ├── l6_l8_matching/      # pair sampling, 27 features, LightGBM, calibration, signals
+        ├── l10_decision/        # decision rule, open-set policy tuner
+        ├── l10_diagnostics/     # error analysis + France spot-check
+        ├── l11_inference/       # streaming scoring, booster/calibrator loading
+        ├── utils/               # cache, report history, coverage preflight
+        └── requirements.txt     # Pinned dependencies
+
+> Every package ships its own runnable `unit_tests.py` (no pytest needed).
 ```
 
 ---

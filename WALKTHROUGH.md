@@ -194,7 +194,7 @@ venv\Scripts\python.exe business_entity_resolution/src/main_l2.py
 | **Test** | **S1** | `test_source1.tsv` | 18 | 1,732,544 |
 | **Test** | **S2** | `test_source2.tsv` | 49 | 4,887,273 |
 | **Test** | **S3** | `test_source3.tsv` | 51 | 5,082,316 |
-| **TOTAL** | | | **194 shards** | **24,229,173 records** |
+| **TOTAL** | | | **245 shards** | **24,229,173 records** |
 
 - **Peak RAM Usage**: **0.61 GB** (well below 2.0 GB hard limit; under 500 MB per chunk)
 - **Zero NaN check**: **PASS** across all parquet columns
@@ -448,7 +448,7 @@ Schema: `s1_id, cand_id, label(int8), neg_type(pos/hard/easy), country, rank(int
 | Module | File | Purpose |
 |---|---|---|
 | Feature functions | [`src/l6_l8_matching/features.py`](business_entity_resolution/src/l6_l8_matching/features.py) | `compute_features` + 4 block functions + `build_idf`; `FEATURE_NAMES` (27) |
-| Unit Tests | [`src/l6_l8_matching/unit_tests.py`](business_entity_resolution/src/l6_l8_matching/unit_tests.py) | 5 L7 tests (shape, identical vs different, IDF, retrieval ranks) |
+| Unit Tests | [`src/l6_l8_matching/unit_tests.py`](business_entity_resolution/src/l6_l8_matching/unit_tests.py) | 8 L7 tests (shape, identical vs different, IDF, retrieval ranks, signal sidecar round-trip/lockstep/guard, joined-signal retrieval) |
 | Entry Point | [`src/main_l7.py`](business_entity_resolution/src/main_l7.py) | Joins L6 pairs with normalized records, computes features, streams Parquet |
 
 ### 2. Execution Command
@@ -472,11 +472,21 @@ venv\Scripts\python.exe business_entity_resolution/src/main_l7.py \
 | Retrieval | 6 | `ret_exact_key_hit`, `ret_rrf_score`, `ret_retriever_agreement`, `ret_candidate_rank`, `ret_retrieved`, `ret_rank_inverse` |
 | Structural | 4 | `struct_same_country`, `struct_name_len_ratio`, `struct_addr_len_ratio`, `struct_addr_missing_xor` |
 
-String similarity uses `rapidfuzz` (ratio, Jaro-Winkler, token sort/set); set features are Jaccard; `name_idf_overlap` is an IDF-weighted token overlap built from candidate document frequencies. RRF score / channel agreement are joined from L3/L4 artifacts when `--l3-dir`/`--l4-dir` are passed, else 0.
+String similarity uses `rapidfuzz` (ratio, Jaro-Winkler, token sort/set); set features are Jaccard; `name_idf_overlap` is an IDF-weighted token overlap built from candidate document frequencies.
+
+`ret_rrf_score` / `ret_retriever_agreement` are resolved from exactly one provenance path, recorded in `artifacts/features/features_variant_<v>.meta.json`:
+
+| Mode | Trigger | Behaviour |
+|---|---|---|
+| `sidecar` | default | Lockstep-read the L5 signal sidecar (`artifacts/signals/candidates_<split>_<refs>.parquet` or `--signals`); pair order must match the pairs table |
+| `legacy_artifact_join` | `--l3-dir` / `--l4-dir` | Reconstruct signals by joining the L3/L4 artifacts directly (kept for old runs) |
+| `zeros` | `--no-signals` | Both features are hard-coded 0 and the run is flagged as non-reproducible at L11 |
+
+L8 records the provenance in its report, and L11 refuses to score a booster trained *with* signals when no sidecar can supply them (override: `--allow-signal-mismatch`), so the training-time and inference-time values of those two features can no longer silently diverge.
 
 ### 4. Verification
 
-- 10/10 package unit tests pass (5 new L7 tests).
+- 18/18 L6–L9 package unit tests pass (8 L7 tests, including the 3 signal/retrieval-join tests).
 - Functional smoke run produced a `(26, 31)` table = 4 meta columns + **27 float32 features**, **0 NaN**.
 
 ---
@@ -674,7 +684,7 @@ venv\Scripts\python.exe business_entity_resolution/src/main_l10_diagnostics.py -
 
 ---
 
-## ✅ Layer 11: Test Inference + Submission Validation (COMPLETED)
+## ✅ Layer 11: Test Inference + Submission Validation (CODE COMPLETE — END-TO-END RUN PENDING)
 
 ```
 [L8] ──► [L9] ──► [L10] ──► [L11] ──► [L12]
@@ -687,7 +697,7 @@ venv\Scripts\python.exe business_entity_resolution/src/main_l10_diagnostics.py -
 |---|---|---|
 | Scorer | [`src/l11_inference/scorer.py`](business_entity_resolution/src/l11_inference/scorer.py) | Load the L8 booster + optional L9 calibrator, `score_matrix`, `calibrate_scores` |
 | Inference engine | [`src/l11_inference/inference.py`](business_entity_resolution/src/l11_inference/inference.py) | Streaming reference-batch scoring, IDF build, submission writers |
-| Unit Tests | [`src/l11_inference/unit_tests.py`](business_entity_resolution/src/l11_inference/unit_tests.py) | 7 tests (parsing, writers, scorer, calibrator, streaming inference) |
+| Unit Tests | [`src/l11_inference/unit_tests.py`](business_entity_resolution/src/l11_inference/unit_tests.py) | 8 tests (parsing, writers, scorer, calibrator, streaming inference, signal lockstep + score table) |
 | Entry Point | [`src/main_l11.py`](business_entity_resolution/src/main_l11.py) | Run inference, write both submission files, invoke the validator |
 
 ### 2. Execution Command
@@ -719,10 +729,16 @@ venv\Scripts\python.exe business_entity_resolution/src/main_l11.py --max-referen
 
 ### 5. Verification
 
-- **7/7** L11 unit tests pass; full regression 49/49 across L1/L6–L11.
+- **8/8** L11 unit tests pass; full regression **90/90** across all seven suites (L1, L3–L5, L6–L9, L10, L10.5, L11, utils).
 - Functional smoke on real test records (20 refs, 60 pairs) with a synthetic booster: scored all pairs, wrote both TSVs, open-set detection reported 3 refs.
 - A complete-coverage variant of the output **PASSED the official `validate_submission.py`** (20/20 rows, 2 non-empty) — proving the format is submission-safe.
 - The `main_l11.py` validator wiring was exercised end-to-end (exit code correctly non-zero when the dev cap omitted required entities).
 
 > ⚠️ **Prerequisite**: a real submission needs the trained booster (`artifacts/models/lgbm_variant_<v>.txt`) and `output/candidate_pairs.tsv` — i.e. the full L3 → L4 → L5 → L6 → L7 → L8 chain on the test split.
+>
+> 🔒 **Coverage guard**: `main_l11.py` calls `utils/coverage.py::check_reference_coverage` before scoring. If any test country is missing from `candidate_pairs.tsv`, or the pairs cover fewer references than the L3 planning step planned, it prints `❌ COVERAGE GUARD: …` and exits with code 2 instead of emitting an all-singleton submission. Truncated/sampled runs need an explicit `--allow-partial-coverage`.
+>
+> The guard reports the loss in references, not in countries: on the current workspace `main_l5.py --split test --refs all --countries us,india,france` refuses to run and names `us (~663,106)`, `india (~809,986)`, `france (~259,452)` — the whole 1,732,544-reference test set. `--countries` also accepts comma-separated buckets, and a bucket with no in-scope references is reported as out of scope instead of contributing a misleading "~0 references".
+>
+> 🧾 **Feature provenance**: the score table (`artifacts/scores/<split>_<variant>.parquet`) and the L7 feature meta sidecar are written on every real run, so the two retrieval features are joined rather than assumed to be 0. A `zeros` provenance means inference is scoring features the booster was never trained on, and the run is rejected.
 

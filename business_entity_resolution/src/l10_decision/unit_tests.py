@@ -13,6 +13,10 @@ SRC_DIR = Path(__file__).resolve().parent.parent
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from config import (  # noqa: E402
+    L10_OPEN_SET_TAU_BOOST,
+    L10_OPEN_SET_VETO_MIN_CONFIDENCE,
+)
 from l10_decision.decision import (  # noqa: E402
     apply_decision_rule,
     build_reference_ids,
@@ -160,6 +164,108 @@ def test_write_id_list_tsv_format():
         assert lines[2] == "S1-b\t"
 
 
+def _pseudo_open_scores() -> tuple[dict, dict, list[str]]:
+    """Synthetic pseudo-open country: 10 singletons + 10 true matches.
+
+    The singletons' best candidate scores 0.55 - above the shipped veto floor of
+    0.50, so the config default pays a false-merge penalty on each of them, while a
+    slightly higher veto would empty them all for free (their true matches score
+    0.8 and survive).
+    """
+    scores: dict[tuple[str, str], float] = {}
+    gt: dict[str, set[str]] = {}
+    refs: list[str] = []
+    for i in range(20):
+        s1 = f"S1-{i:03d}"
+        refs.append(s1)
+        if i < 10:
+            gt[s1] = set()
+            scores[(s1, f"S2-{i:03d}")] = 0.55
+        else:
+            gt[s1] = {f"S2-{i:03d}", f"S3-{i:03d}"}
+            scores[(s1, f"S2-{i:03d}")] = 0.80
+            scores[(s1, f"S3-{i:03d}")] = 0.78
+    return scores, gt, refs
+
+
+def test_open_set_tuning_beats_config_default() -> None:
+    """The tuner finds the stricter veto that the shipped constant misses."""
+    from l10_decision.open_set import tune_open_set_policy
+
+    scores, gt, refs = _pseudo_open_scores()
+    tuning = tune_open_set_policy(
+        scores,
+        gt,
+        refs,
+        tau_match=0.5,
+        tau_s=0.3,
+        margin=0.05,
+        boost_grid=(0.0, 0.1),
+        veto_grid=(0.0, 0.5, 0.6),
+    )
+    assert tuning["default"]["veto_min_confidence"] == 0.50
+    assert tuning["improvement"] > 0.3
+    assert tuning["best"]["veto_min_confidence"] == 0.6
+    assert tuning["best"]["macro_f05"] > tuning["default"]["macro_f05"]
+    # The tuner never degrades the fake-open country below its best grid point.
+    assert tuning["best"]["macro_f05"] == max(row["macro_f05"] for row in tuning["grid"])
+    assert len(tuning["grid"]) == 2 * 3
+
+
+def test_open_set_policy_persistence_and_precedence() -> None:
+    """A saved policy wins over the config default, and CLI args win over both."""
+    from l10_decision.open_set import (
+        load_open_set_policy,
+        resolve_open_set_policy,
+        save_open_set_policy,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "policy.json"
+        assert load_open_set_policy(path) is None
+
+        save_open_set_policy(
+            path,
+            {
+                "chosen": {"open_set_boost": 0.22, "veto_min_confidence": 0.66},
+                "pseudo_open_country": "india",
+            },
+        )
+        loaded = load_open_set_policy(path)
+        assert loaded is not None
+        assert loaded["boost"] == 0.22 and loaded["veto_min_confidence"] == 0.66
+
+        boost, veto, source = resolve_open_set_policy(None, None, path)
+        assert (boost, veto, source) == (0.22, 0.66, "tuned_policy")
+
+        boost, veto, source = resolve_open_set_policy(0.05, None, path)
+        assert (boost, veto, source) == (0.05, 0.66, "cli")
+
+        boost, veto, source = resolve_open_set_policy(None, None, Path(tmp) / "absent.json")
+        assert source == "config_default"
+        assert (boost, veto) == (L10_OPEN_SET_TAU_BOOST, L10_OPEN_SET_VETO_MIN_CONFIDENCE)
+
+
+def test_veto_impact_preview_counts_references() -> None:
+    """The preview shows how many references a threshold would empty."""
+    from l10_decision.open_set import score_quantiles, veto_impact_preview
+
+    top = {f"S1-{i}": value / 100 for i, value in enumerate([10, 20, 45, 55, 90])}
+    preview = veto_impact_preview(top, thresholds=(0.0, 0.5, 0.95))
+    assert preview[0] == {
+        "veto_min_confidence": 0.0,
+        "vetoed_references": 0,
+        "vetoed_fraction": 0.0,
+    }
+    assert preview[1]["vetoed_references"] == 3
+    assert abs(preview[1]["vetoed_fraction"] - 0.6) < 1e-9
+    assert preview[2]["vetoed_references"] == 5
+
+    quantiles = score_quantiles([0.1, 0.2, 0.3, 0.4], quantiles=(0.5,))
+    assert abs(quantiles["q50"] - 0.25) < 1e-9
+    assert score_quantiles([], quantiles=(0.5,)) == {"q50": 0.0}
+
+
 def run_all_tests() -> bool:
     """Run the L10 test suite and report pass/fail."""
     tests = [
@@ -174,6 +280,9 @@ def run_all_tests() -> bool:
         ("Joint tuning prefers precision", test_tune_thresholds_prefers_precision),
         ("Reference ids union + sort", test_build_reference_ids_unions_and_sorts),
         ("TSV writer format", test_write_id_list_tsv_format),
+        ("Open-set tuner beats config default", test_open_set_tuning_beats_config_default),
+        ("Open-set policy precedence", test_open_set_policy_persistence_and_precedence),
+        ("Veto impact preview", test_veto_impact_preview_counts_references),
     ]
 
     print("\n" + "=" * 60)

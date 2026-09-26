@@ -22,6 +22,7 @@ python business_entity_resolution/src/main_l7.py --pairs artifacts/train_pairs/v
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from collections import Counter
@@ -44,6 +45,13 @@ import pyarrow.parquet as pq
 from config import PATH_ARTIFACTS_DIR
 from l3_l5_blocking.buckets import iter_source_shards
 from l6_l8_matching.features import FEATURE_NAMES, build_idf, compute_features
+from l6_l8_matching.signals import (
+    MODE_SIDECAR,
+    MODE_ZEROS,
+    SignalsTooLargeError,
+    load_signals_for_pairs,
+    signals_path,
+)
 
 PAIR_COLUMNS = ["s1_id", "cand_id", "label", "neg_type", "rank"]
 RECORD_COLUMNS = [
@@ -82,8 +90,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", choices=["train", "test"], default="train")
     parser.add_argument("--max-pairs", type=int, default=None)
     parser.add_argument("--out", type=str, default=None)
-    parser.add_argument("--l4-dir", type=str, default=None, help="Optional L4 artifact dir for RRF scores.")
-    parser.add_argument("--l3-dir", type=str, default=None, help="Optional L3 artifact dir for channel agreement.")
+    parser.add_argument(
+        "--signals",
+        type=str,
+        default=None,
+        help="Retrieval-signal sidecar written by L5 (default: the sidecar for --signals-refs).",
+    )
+    parser.add_argument(
+        "--signals-refs",
+        choices=["val", "train", "all"],
+        default="train",
+        help="Run scope of the candidate set the pairs were sampled from.",
+    )
+    parser.add_argument(
+        "--no-signals",
+        action="store_true",
+        help="Force retrieval features to 0 (only valid if inference does the same).",
+    )
+    parser.add_argument("--l4-dir", type=str, default=None, help="Legacy: L4 artifact dir for RRF scores.")
+    parser.add_argument("--l3-dir", type=str, default=None, help="Legacy: L3 artifact dir for channel agreement.")
     return parser.parse_args()
 
 
@@ -201,9 +226,35 @@ def main() -> None:
     cand_lookup = load_record_lookup(args.split, (2, 3), cand_ids)
     print(f"  loaded S1 records={len(s1_lookup):,} | candidate records={len(cand_lookup):,}")
 
-    signals = load_signals(needed, args.l4_dir, args.l3_dir)
-    if signals:
-        print(f"  retrieval signals joined for {len(signals):,} pairs")
+    # Retrieval signals must be identical at training and inference time. The
+    # sidecar written by L5 is the single source of truth; the legacy --l3-dir /
+    # --l4-dir join is still accepted but records a different mode.
+    signals_mode = MODE_ZEROS
+    signals_source = None
+    if args.no_signals:
+        signals: dict = {}
+        print("  ⚠️  --no-signals: ret_rrf_score / ret_retriever_agreement will be 0")
+        print("      inference must use the same setting or the model will see a skew")
+    elif args.l3_dir or args.l4_dir:
+        signals = load_signals(needed, args.l4_dir, args.l3_dir)
+        signals_mode = "legacy_artifact_join"
+        print(f"  retrieval signals joined from L3/L4 artifacts for {len(signals):,} pairs")
+    else:
+        sidecar = Path(args.signals) if args.signals else signals_path(args.split, args.signals_refs)
+        if sidecar.exists():
+            try:
+                signals = load_signals_for_pairs(sidecar, needed)
+            except SignalsTooLargeError as exc:
+                print(f"  ❌ {exc}")
+                raise SystemExit(1) from None
+            signals_mode = MODE_SIDECAR
+            signals_source = str(sidecar)
+            print(f"  retrieval signals from sidecar: {sidecar.name} ({len(signals):,} pairs)")
+        else:
+            signals = {}
+            print(f"  ⚠️  no signal sidecar at {sidecar}")
+            print("      ret_rrf_score / ret_retriever_agreement will be 0 — run main_l5.py")
+            print("      (it writes the sidecar) or pass --signals <path> to match inference")
 
     # IDF table from candidate name tokens.
     token_df: Counter[str] = Counter()
@@ -276,11 +327,31 @@ def main() -> None:
     print("\n" + "=" * 65)
     print("📊 LAYER 7 FEATURE REPORT")
     print("=" * 65)
+    # Provenance: Layer 8 copies this into its report and Layer 11 refuses to run
+    # a mismatch (a model trained with real signals but scored with zeros).
+    provenance = {
+        "split": args.split,
+        "signals_mode": signals_mode,
+        "signals_source": signals_source,
+        "signals_refs": args.signals_refs,
+        "signals_joined": len(signals),
+        "pairs": str(pairs_path),
+        "features": len(FEATURE_NAMES),
+        "rows": written,
+        "idf_documents": len(cand_lookup),
+        "legacy_signal_join": bool(args.l3_dir or args.l4_dir),
+    }
+    meta_path = out_path.with_suffix(".meta.json")
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+
     print(f"  features written : {written:,}")
     print(f"  skipped (missing record) : {skipped:,} (s1 missing {missing_s1:,}, cand missing {missing_cand:,})")
     print(f"  feature count    : {len(FEATURE_NAMES)}")
+    print(f"  retrieval signals: {signals_mode} ({len(signals):,} pairs)")
     print(f"  elapsed          : {elapsed:.1f}s")
     print(f"  output           : {out_path}")
+    print(f"  provenance       : {meta_path}")
     print("=" * 65)
     print("🌟 LAYER 7 COMPLETE")
     print("=" * 65)

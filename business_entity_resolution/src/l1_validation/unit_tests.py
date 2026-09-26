@@ -93,6 +93,41 @@ def run_all_tests() -> bool:
 
     tests.append(("Test 8 — evaluate_with_thresholds singleton path", test_8))
 
+    def test_9():
+        # The official problem statement gives
+        #   F_0.5 = (1.25 * P * R) / (0.25 * P + R)
+        # and its worked example (pred 3 ids, gt 2 ids, 2 true positives) scores
+        # 0.714. The closed form used by the per-entity scorer must agree exactly,
+        # so a change to either formulation cannot silently drift apart.
+        pred = {"S2-00047", "S2-00193", "S3-00812"}
+        gt = {"S2-00047", "S3-00812"}
+        precision = len(pred & gt) / len(pred)
+        recall = len(pred & gt) / len(gt)
+        official = (1.25 * precision * recall) / (0.25 * precision + recall)
+        closed_form = 5.0 * len(pred & gt) / (len(gt) + 4 * len(pred))
+        assert abs(official - 0.714) < 0.0005, official
+        assert abs(official - closed_form) < 1e-12
+
+        result = macro_f05({"S1-00001": sorted(pred)}, {"S1-00001": gt})
+        assert abs(result["macro_f05"] - 0.714) < 0.0005, result["macro_f05"]
+        assert result["n_singletons"] == 0
+        assert abs(result["match_f05"] - result["macro_f05"]) < 1e-12
+
+    tests.append(("Test 9 — official F0.5 formula equivalence", test_9))
+
+    def test_10():
+        # Singletons score 1.0 when predicted empty and 0.0 otherwise, and they are
+        # part of the macro average (a whole test set of France-like entities is
+        # only scored correctly if this holds).
+        gt = {"S1-1": set(), "S1-2": set(), "S1-3": {"S2-x"}}
+        result = macro_f05({"S1-1": [], "S1-2": ["S2-y"], "S1-3": ["S2-x"]}, gt)
+        assert result["n_singletons"] == 2
+        assert result["singleton_f05"] == 0.5
+        assert result["match_f05"] == 1.0
+        assert abs(result["macro_f05"] - (1.0 + 0.0 + 1.0) / 3) < 1e-12
+
+    tests.append(("Test 10 — singleton credit inside the macro average", test_10))
+
     all_passed = True
     print("\n" + "=" * 60)
     print("🧪 RUNNING LAYER 1 UNIT TESTS")

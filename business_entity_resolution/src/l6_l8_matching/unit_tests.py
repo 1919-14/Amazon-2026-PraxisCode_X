@@ -286,6 +286,100 @@ def test_calibrate_grouped_range() -> None:
     assert calibrated.min() >= 0.0 and calibrated.max() <= 1.0
 
 
+def test_signal_writer_roundtrip_and_lockstep() -> None:
+    """The sidecar round-trips and is consumed in lockstep with the candidate file."""
+    from l6_l8_matching.signals import SignalStream, SignalWriter, load_signals_for_pairs
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "signals.parquet"
+        writer = SignalWriter(path, chunk=2)
+        writer.add("S1-1", ["S2-a", "S2-b"], [0.5, 0.25], [1.0, 0.5])
+        writer.add("S1-2", ["S2-c"], [0.1], [0.3333])
+        writer.close()
+        assert writer.rows == 3
+
+        # Keyed lookup (training path).
+        loaded = load_signals_for_pairs(path, [("S1-2", "S2-c")])
+        assert abs(loaded[("S1-2", "S2-c")]["rrf_score"] - 0.1) < 1e-6
+        assert ("S1-1", "S2-a") not in loaded
+
+        # Lockstep stream (inference path).
+        stream = SignalStream(path)
+        assert stream.enabled is True
+        first = stream.next_row("S1-1", ["S2-a", "S2-b"])
+        assert [round(row["rrf_score"], 4) for row in first] == [0.5, 0.25]
+        assert abs(first[1]["channel_agreement"] - 0.5) < 1e-6
+        second = stream.next_row("S1-2", ["S2-c"])
+        assert abs(second[0]["channel_agreement"] - 0.3333) < 1e-4
+        assert stream.rows_read == 3
+
+        # Drift between sidecar and candidate file must fail loudly, not silently
+        # attach the wrong reference's signals.
+        try:
+            stream.next_row("S1-3", ["S2-d"])
+            raise AssertionError("expected a misalignment error")
+        except ValueError as exc:
+            assert "ended early" in str(exc) or "out of sync" in str(exc)
+        assert stream.summary()["rows"] == 3
+
+
+def test_signal_stream_disabled_and_guard() -> None:
+    """A missing sidecar yields zeros; an oversized join refuses to swap."""
+    from l6_l8_matching.signals import (
+        SignalsTooLargeError,
+        SignalStream,
+        SignalWriter,
+        load_signals_for_pairs,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        missing = SignalStream(Path(tmp) / "nope.parquet")
+        assert missing.enabled is False
+        assert missing.next_row("S1-1", ["S2-a"]) == [
+            {"rrf_score": 0.0, "channel_agreement": 0.0}
+        ]
+
+        path = Path(tmp) / "signals.parquet"
+        writer = SignalWriter(path)
+        writer.add("S1-1", ["S2-a", "S2-b"], [0.5, 0.4], [1.0, 1.0])
+        writer.close()
+        try:
+            load_signals_for_pairs(path, None, max_entries=1)
+            raise AssertionError("expected SignalsTooLargeError")
+        except SignalsTooLargeError as exc:
+            assert "--ref-sample" in str(exc)
+
+
+def test_retrieval_features_use_joined_signals() -> None:
+    """Joined signals reach the feature vector instead of being hard-coded to 0."""
+    rec = {
+        "name_core": "acme corp",
+        "name_tokens": ["acme", "corp"],
+        "country_norm": "us",
+        "addr_norm": "1 main st",
+        "addr_tokens": ["1", "main", "st"],
+        "addr_digits": ["1"],
+        "is_missing_addr": False,
+    }
+    with_signals = compute_retrieval_features(
+        rec, rec, {"rank": 0}, {"rrf_score": 0.25, "channel_agreement": 0.75}
+    )
+    without = compute_retrieval_features(rec, rec, {"rank": 0}, None)
+    # Order: [exact_key_hit, rrf_score, agreement, rank, retrieved, rank_inverse].
+    assert len(with_signals) == 6
+    assert abs(with_signals[1] - 0.25) < 1e-6
+    assert abs(with_signals[2] - 0.75) < 1e-6
+    assert without[1] == 0.0 and without[2] == 0.0
+    assert with_signals[0] == 1.0
+    assert with_signals[4] == 1.0 and without[4] == 1.0
+    # The full 27-feature vector keeps the same values at the documented indices,
+    # which is what guarantees model/feature ordering alignment at inference.
+    full = compute_features(rec, rec, {"rank": 0}, {}, {"rrf_score": 0.25})
+    assert len(full) == len(FEATURE_NAMES)
+    assert abs(full[FEATURE_NAMES.index("ret_rrf_score")] - 0.25) < 1e-6
+    assert full[FEATURE_NAMES.index("ret_exact_key_hit")] == 1.0
+
+
 def run_all_tests() -> bool:
     """Run every test and report pass/fail."""
     tests = [
@@ -304,6 +398,9 @@ def run_all_tests() -> bool:
         ("L9 ECE extremes", test_ece_extremes),
         ("L9 isotonic + serialization", test_isotonic_monotonic_and_serialization),
         ("L9 grouped calibration", test_calibrate_grouped_range),
+        ("Signal sidecar round-trip + lockstep", test_signal_writer_roundtrip_and_lockstep),
+        ("Signal guard + disabled stream", test_signal_stream_disabled_and_guard),
+        ("Retrieval features use signals", test_retrieval_features_use_joined_signals),
     ]
 
     print("\n" + "=" * 60)

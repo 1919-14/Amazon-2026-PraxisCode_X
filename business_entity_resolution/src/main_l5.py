@@ -54,8 +54,16 @@ from config import (
     PATH_ARTIFACTS_DIR,
     PATH_OUTPUT_DIR,
 )
+from l6_l8_matching.signals import SignalWriter, signals_path
 from l3_l5_blocking.buckets import dataset_candidate_rows
 from l3_l5_blocking.truncate import adaptive_truncate, coarse_score
+from utils.coverage import (
+    CoverageError,
+    check_country_artifacts,
+    normalize_countries,
+    planned_reference_counts,
+)
+from utils.reports import merge_json_report, render_markdown_table, write_text
 
 # Reuse Layer 3/4 artifact helpers so paths and loading stay consistent.
 from main_l3 import load_ground_truth, resolve_reference_ids
@@ -80,7 +88,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--k-max", type=int, default=L5_K_MAX)
     parser.add_argument("--no-tune", action="store_true", help="Skip ratio tuning (use --ratio).")
     parser.add_argument("--output", type=str, default=None, help="Override candidate_pairs.tsv path.")
-    return parser.parse_args()
+    parser.add_argument(
+        "--allow-missing-countries",
+        action="store_true",
+        help="Write the candidate set even when a country bucket's L4 artifact is missing "
+        "(those references would be submitted as empty predictions).",
+    )
+    parser.add_argument(
+        "--allow-partial-coverage",
+        action="store_true",
+        help="Accept an output that does not cover every expected reference.",
+    )
+    parser.add_argument(
+        "--no-signals",
+        action="store_true",
+        help="Skip the retrieval-signal sidecar (training and inference then both use zeros).",
+    )
+    args = parser.parse_args()
+    # Accept both `--countries us india` and `--countries us,india`.
+    args.countries = normalize_countries(args.countries)
+    return args
 
 
 def default_output_path(args: argparse.Namespace) -> Path:
@@ -145,6 +172,29 @@ def main() -> None:
     print(f"  split={args.split} | refs={args.refs} | countries={args.countries}")
     print(f"  ratio-grid={ratios} | k_min={args.k_min} | k_max={args.k_max}")
     print(f"  target K band = [{L5_K_MIN_TARGET}, {L5_K_MAX_TARGET}]")
+
+    planned = planned_reference_counts(args.split, args.refs, args.countries)
+    coverage = check_country_artifacts(
+        "l4",
+        args.split,
+        args.refs,
+        args.countries,
+        allow_missing=args.allow_missing_countries,
+        expected_references=planned,
+        verify_counts=True,
+        remediation=f"run main_l4.py --split {args.split} --refs {args.refs} first",
+    )
+    print(
+        "  input coverage: "
+        + " | ".join(
+            f"{country} {share * 100:.1f}%" for country, share in sorted(coverage["coverage"].items())
+        )
+        if coverage["coverage"]
+        else "  input coverage: (no artifacts verified)"
+    )
+    expected_rows = sum(
+        int(planned.get(country, 0)) for country in coverage["present"]
+    )
 
     ref_ids = resolve_reference_ids(args)
     gt_map = load_ground_truth(ref_ids) if args.split == "train" else {}
@@ -216,6 +266,18 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     total_kept = 0
     rows_written = 0
+    written_by_country: dict[str, int] = {}
+    kept_by_country: dict[str, int] = {}
+
+    # Retrieval signals are written next to the candidate set in exactly the same
+    # order, so Layer 7 (training) and Layer 11 (inference) both read the *same*
+    # values for ret_rrf_score / ret_retriever_agreement instead of one side
+    # silently scoring zeros.
+    signal_writer = None
+    signal_file = None
+    if not args.no_signals:
+        signal_file = signals_path(args.split, args.refs)
+        signal_writer = SignalWriter(signal_file)
 
     with out_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
@@ -243,9 +305,56 @@ def main() -> None:
                 writer.writerow([s1_id, ",".join(kept)])
                 total_kept += len(kept)
                 rows_written += 1
+                written_by_country[country] = written_by_country.get(country, 0) + 1
+                kept_by_country[country] = kept_by_country.get(country, 0) + len(kept)
+
+                if signal_writer is not None:
+                    rrf_by_candidate = dict(fused)
+                    agreement: dict[str, int] = {}
+                    if channel_lists:
+                        for candidates in channel_lists.values():
+                            for candidate in candidates:
+                                agreement[candidate] = agreement.get(candidate, 0) + 1
+                    n_channels = max(1, len(channel_lists)) if channel_lists else 1
+                    signal_writer.add(
+                        s1_id,
+                        kept,
+                        [rrf_by_candidate.get(candidate, 0.0) for candidate in kept],
+                        [agreement.get(candidate, 0) / n_channels for candidate in kept],
+                    )
 
             del fused_lists, l3_channels
             gc.collect()
+
+    if signal_writer is not None:
+        signal_writer.close()
+
+    # ------------------------------------------------------------------
+    # Output coverage verification: every country that was blocked must appear
+    # in full. A short count means the artifact was truncated somewhere upstream.
+    # ------------------------------------------------------------------
+    coverage_by_country: dict[str, float] = {}
+    for country in coverage["present"]:
+        expected = int(planned.get(country, 0))
+        written = written_by_country.get(country, 0)
+        coverage_by_country[country] = (written / expected) if expected else 1.0
+    short = [
+        country
+        for country, share in coverage_by_country.items()
+        if share < 1.0
+    ]
+    observed_rows = sum(written_by_country.values())
+    if short and not args.allow_partial_coverage:
+        detail = ", ".join(
+            f"{country}: {written_by_country.get(country, 0):,}/{int(planned.get(country, 0)):,}"
+            for country in short
+        )
+        raise CoverageError(
+            f"candidate set covers {observed_rows:,} references but {short} are short "
+            f"({detail}). Those Source-1 entities would be submitted as empty "
+            f"predictions. Fix: re-run the L3/L4 chain for the affected buckets, or "
+            f"pass --allow-partial-coverage."
+        )
 
     elapsed = time.time() - t0
 
@@ -272,54 +381,92 @@ def main() -> None:
     print(f"  output              : {out_path}")
     print(f"  elapsed             : {elapsed:.1f}s")
 
+    run_key = f"{args.split}_{args.refs}"
+    payload = {
+        "config": {
+            "split": args.split,
+            "refs": args.refs,
+            "countries": args.countries,
+            "ratio_grid": tune_ratios,
+            "chosen_ratio": chosen_ratio,
+            "k_min": args.k_min,
+            "k_max": args.k_max,
+            "signals": str(signal_file) if signal_file is not None else None,
+        },
+        "references": rows_written,
+        "expected_references": expected_rows,
+        "coverage": coverage_by_country,
+        "candidates_kept": total_kept,
+        "avg_k": avg_k_final,
+        "candidate_recall": (recall if (has_ground_truth and not args.no_tune) else None),
+        "reduction_ratio": 1 - density,
+        "missing_artifacts": missing_artifacts,
+        "run": run_key,
+        "elapsed_seconds": round(elapsed, 2),
+    }
     PATH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     report_json = PATH_OUTPUT_DIR / "l5_blocking_report.json"
-    with report_json.open("w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "config": {
-                    "split": args.split,
-                    "refs": args.refs,
-                    "countries": args.countries,
-                    "ratio_grid": tune_ratios,
-                    "chosen_ratio": chosen_ratio,
-                    "k_min": args.k_min,
-                    "k_max": args.k_max,
-                },
-                "references": rows_written,
-                "candidates_kept": total_kept,
-                "avg_k": avg_k_final,
-                "candidate_recall": (recall if (has_ground_truth and not args.no_tune) else None),
-                "reduction_ratio": 1 - density,
-                "missing_artifacts": missing_artifacts,
-                "elapsed_seconds": round(elapsed, 2),
-            },
-            f,
-            indent=2,
-        )
+    merged = merge_json_report(report_json, run_key, payload)
 
     report_md = PATH_OUTPUT_DIR / "blocking_report.md"
-    with report_md.open("w", encoding="utf-8") as f:
-        f.write("# Layer 5 Blocking Report\n\n")
-        f.write(f"- split: `{args.split}` | refs: `{args.refs}` | countries: `{args.countries}`\n")
-        f.write(f"- target K band: `[{L5_K_MIN_TARGET}, {L5_K_MAX_TARGET}]`\n")
-        f.write(f"- chosen retention ratio: `{chosen_ratio}` | k_min={args.k_min} | k_max={args.k_max}\n\n")
-        f.write("## Results\n\n")
-        f.write(f"- references written: `{rows_written:,}`\n")
-        f.write(f"- candidates kept: `{total_kept:,}`\n")
-        f.write(f"- average K per reference: `{avg_k_final:.3f}`\n")
-        if has_ground_truth and not args.no_tune:
-            f.write(f"- candidate recall (micro, true pairs): `{recall * 100:.2f}%`\n")
-        f.write(f"- reduction ratio: `{(1 - density) * 100:.6f}%` (candidate density `{density:.2e}`)\n")
-        if missing_artifacts:
-            f.write(f"- ⚠️ missing artifacts for: `{missing_artifacts}`\n")
+    lines = [
+        "# Layer 5 Blocking Report",
+        "",
+        "Every run is kept: `runs` in `l5_blocking_report.json` holds the full history.",
+        "",
+        render_markdown_table(
+            merged.get("runs", {}),
+            {
+                "split": "split",
+                "refs": "refs",
+                "references": "references",
+                "avg K": "avg_k",
+                "recall": "candidate_recall",
+                "ratio": "chosen_ratio",
+            },
+            lambda key, run: {
+                "split": (run.get("config") or {}).get("split"),
+                "refs": (run.get("config") or {}).get("refs"),
+                "ratio": (run.get("config") or {}).get("chosen_ratio"),
+                "recall": (
+                    f"{(run['candidate_recall'] * 100):.2f}%"
+                    if run.get("candidate_recall") is not None
+                    else "n/a"
+                ),
+            },
+            latest=merged.get("latest_run"),
+        ),
+        "",
+        f"## Latest run: `{run_key}`",
+        "",
+        f"- countries: `{args.countries}` | target K band: `[{L5_K_MIN_TARGET}, {L5_K_MAX_TARGET}]`",
+        f"- chosen retention ratio: `{chosen_ratio}` | k_min={args.k_min} | k_max={args.k_max}",
+        f"- references written: `{rows_written:,}` of `{expected_rows:,}` expected | "
+        f"coverage: `{coverage_by_country}`",
+        f"- candidates kept: `{total_kept:,}` | average K: `{avg_k_final:.3f}`",
+    ]
+    if has_ground_truth and not args.no_tune:
+        lines.append(f"- candidate recall (micro, true pairs): `{recall * 100:.2f}%`")
+    lines.append(f"- reduction ratio: `{(1 - density) * 100:.6f}%` (candidate density `{density:.2e}`)")
+    lines.append(
+        f"- retrieval-signal sidecar: `{signal_file.name if signal_file else 'disabled'}`"
+    )
+    if missing_artifacts:
+        lines.append(f"- ⚠️ missing artifacts for: `{missing_artifacts}`")
+    write_text(report_md, "\n".join(lines) + "\n")
 
-    print(f"\n  saved report: {report_json}")
+    print(f"\n  saved report: {report_json} (history preserved)")
     print(f"  saved report: {report_md}")
+    if signal_file is not None:
+        print(f"  saved signals: {signal_file} ({signal_writer.rows:,} candidate rows)")
     print("=" * 65)
     print("🌟 LAYER 5 COMPLETE")
     print("=" * 65)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except CoverageError as error:
+        print(f"\n❌ COVERAGE GUARD: {error}\n")
+        raise SystemExit(2) from None

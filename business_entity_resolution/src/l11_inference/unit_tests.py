@@ -196,6 +196,101 @@ def test_run_inference_end_to_end():
         assert stats["pairs_scored"] == 3, stats
 
 
+def test_run_inference_signals_and_score_table():
+    """The sidecar is read in lockstep and the per-pair score table is written."""
+    from l6_l8_matching.signals import MODE_SIDECAR, SignalWriter
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pair_path = Path(tmp) / "candidate_pairs.tsv"
+        pair_path.write_text(
+            "source1_entity_id\tcandidate_entity_ids\n"
+            "S1-a\tS2-1,S2-2\n"
+            "S1-b\tS2-3\n",
+            encoding="utf-8",
+        )
+        signals_path = Path(tmp) / "signals.parquet"
+        writer = SignalWriter(signals_path, chunk=2)
+        writer.add("S1-a", ["S2-1", "S2-2"], [0.5, 0.25], [1.0, 0.5])
+        writer.add("S1-b", ["S2-3"], [0.1], [0.3333])
+        writer.close()
+        scores_out = Path(tmp) / "scores.parquet"
+
+        s1_records = {"S1-a": _s1_record("S1-a", "us", "alpha"), "S1-b": _s1_record("S1-b", "us", "beta")}
+        cand_records = {f"S2-{i}": _s1_record(f"S2-{i}", "us", f"cand {i}") for i in (1, 2, 3)}
+
+        originals = (inference.build_inference_idf, inference.load_records, inference.load_reference_countries)
+        inference.build_inference_idf = lambda *a, **k: {}
+        inference.load_reference_countries = lambda split, ids: {key: "us" for key in ids}
+
+        def fake_load_records(split, sources, ids, max_shards=None):
+            if tuple(sources) == (1,):
+                return {r: s1_records[r] for r in ids if r in s1_records}
+            return {c: cand_records[c] for c in ids if c in cand_records}
+
+        inference.load_records = fake_load_records
+        try:
+            predictions, stats = inference.run_inference(
+                split="test",
+                candidate_pairs_path=pair_path,
+                booster=_FakeBooster([0.95, 0.40, 0.40]),
+                idf={},
+                tau_match=0.2,
+                tau_s=0.3,
+                margin=0.05,
+                all_references=False,
+                ref_batch_size=10,
+                signals_path=signals_path,
+                scores_out=scores_out,
+                progress=lambda *a, **k: None,
+            )
+
+            # A sidecar that does not line up with the candidate file must fail loudly.
+            bad_path = Path(tmp) / "misaligned.parquet"
+            bad = SignalWriter(bad_path)
+            bad.add("S1-b", ["S2-3"], [0.1], [0.33])
+            bad.close()
+            try:
+                inference.run_inference(
+                    split="test",
+                    candidate_pairs_path=pair_path,
+                    booster=_FakeBooster([0.95, 0.40, 0.40]),
+                    idf={},
+                    tau_match=0.2,
+                    tau_s=0.3,
+                    all_references=False,
+                    ref_batch_size=10,
+                    signals_path=bad_path,
+                    progress=lambda *a, **k: None,
+                )
+                raise AssertionError("expected a signal misalignment error")
+            except ValueError as exc:
+                assert "out of sync" in str(exc)
+        finally:
+            (
+                inference.build_inference_idf,
+                inference.load_records,
+                inference.load_reference_countries,
+            ) = originals
+
+        assert stats["signals_mode"] == MODE_SIDECAR
+        assert stats["signals_rows"] == 3
+        assert predictions["S1-a"] == ["S2-1"]
+        # Every candidate at/above tau_match is stored (3 of 3 here). Candidates
+        # below it are dropped, which is lossless: the L10 margin rule can never
+        # keep a candidate below tau_match, so main_l10 can recompute the exact
+        # same decision from this table.
+        assert stats["scores_written"] == 3
+        assert scores_out.exists()
+        import pandas as pd
+
+        scores = pd.read_parquet(scores_out)
+        assert list(scores.columns) == ["s1_id", "cand_id", "prob", "country"]
+        assert scores.iloc[0]["s1_id"] == "S1-a"
+        assert scores.iloc[0]["cand_id"] == "S2-1"
+        assert abs(float(scores.iloc[0]["prob"]) - 0.95) < 1e-6
+        assert scores.iloc[0]["country"] == "us"
+
+
 def run_all_tests() -> bool:
     """Run the L11 test suite and report pass/fail."""
     tests = [
@@ -206,6 +301,7 @@ def run_all_tests() -> bool:
         ("Calibrator load semantics", test_load_calibrator_semantics),
         ("Calibrate global/per-country", test_calibrate_scores_global_and_per_country),
         ("Streaming inference end-to-end", test_run_inference_end_to_end),
+        ("Signals lockstep + score table", test_run_inference_signals_and_score_table),
     ]
 
     print("\n" + "=" * 60)

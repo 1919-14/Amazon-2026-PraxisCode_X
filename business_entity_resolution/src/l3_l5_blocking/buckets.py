@@ -121,6 +121,102 @@ def load_country_candidates(
     return pd.concat(frames, ignore_index=True)
 
 
+def _iter_blocks(
+    split: str,
+    country: str,
+    source_indices: tuple[int, ...],
+    columns: list[str],
+    block_size: int,
+    ref_ids: Optional[Iterable[str]] = None,
+    max_rows: Optional[int] = None,
+):
+    """Yield bounded DataFrames of one country bucket, block by block.
+
+    Keeps peak memory at one block instead of one country: the streamed frames
+    are concatenated only when a block is complete and the buffer is released
+    before the next block is read.
+    """
+    aliases = aliases_for(country)
+    wanted = set(ref_ids) if ref_ids is not None else None
+    buffer: list[pd.DataFrame] = []
+    buffered = 0
+    total = 0
+
+    for source_idx in source_indices:
+        for shard in iter_source_shards(split, source_idx):
+            df = pd.read_parquet(shard, columns=columns)
+            if wanted is not None:
+                df = df[df["entity_id"].isin(wanted)]
+            df = df[df["country_norm"].isin(aliases)]
+            if df.empty:
+                continue
+            if max_rows is not None:
+                remaining = max_rows - total
+                if remaining <= 0:
+                    return
+                if len(df) > remaining:
+                    df = df.iloc[:remaining]
+            for start in range(0, len(df), block_size):
+                chunk = df.iloc[start : start + block_size]
+                remaining_space = block_size - buffered
+                head = chunk.iloc[:remaining_space]
+                buffer.append(head)
+                total += len(head)
+                buffered += len(head)
+                if buffered >= block_size:
+                    yield pd.concat(buffer, ignore_index=True)
+                    buffer = []
+                    buffered = 0
+                tail = chunk.iloc[remaining_space:]
+                if len(tail):
+                    buffer.append(tail)
+                    total += len(tail)
+                    buffered += len(tail)
+            if max_rows is not None and total >= max_rows:
+                break
+        if max_rows is not None and total >= max_rows:
+            break
+
+    if buffer:
+        yield pd.concat(buffer, ignore_index=True)
+
+
+def iter_country_candidate_blocks(
+    split: str,
+    country: str,
+    block_size: int,
+    max_candidates: Optional[int] = None,
+):
+    """Yield the Source 2 + Source 3 candidate pool of one country in blocks."""
+    yield from _iter_blocks(
+        split,
+        country,
+        (2, 3),
+        CANDIDATE_COLUMNS,
+        block_size,
+        max_rows=max_candidates,
+    )
+
+
+def iter_country_reference_blocks(
+    split: str,
+    country: str,
+    block_size: int,
+    ref_ids: Optional[Iterable[str]] = None,
+    max_refs: Optional[int] = None,
+):
+    """Yield the Source 1 references of one country in blocks."""
+    yield from _iter_blocks(
+        split,
+        country,
+        (1,),
+        REFERENCE_COLUMNS,
+        block_size,
+        ref_ids=ref_ids,
+        max_rows=max_refs,
+    )
+
+
 def load_references(
     split: str,
     country: str,

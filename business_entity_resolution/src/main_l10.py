@@ -66,6 +66,7 @@ from l10_decision.decision import (
     tune_thresholds,
     write_id_list_tsv,
 )
+from l10_decision.open_set import resolve_open_set_policy
 
 from main_l3 import load_ground_truth
 from main_l6 import load_reference_countries
@@ -103,9 +104,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tau-s-grid", type=float, nargs="+", default=list(TAU_S_GRID))
     parser.add_argument("--seen-countries", nargs="+", default=list(L10_SEEN_COUNTRIES))
     parser.add_argument("--open-set-countries", nargs="+", default=list(L10_OPEN_SET_COUNTRIES))
-    parser.add_argument("--open-set-boost", type=float, default=L10_OPEN_SET_TAU_BOOST)
     parser.add_argument(
-        "--veto-min-confidence", type=float, default=L10_OPEN_SET_VETO_MIN_CONFIDENCE
+        "--open-set-boost",
+        type=float,
+        default=None,
+        help="Override the tuned open-set boost (default: tuned policy, then config).",
+    )
+    parser.add_argument(
+        "--veto-min-confidence",
+        type=float,
+        default=None,
+        help="Override the tuned open-set veto floor (default: tuned policy, then config).",
+    )
+    parser.add_argument(
+        "--open-set-policy",
+        type=str,
+        default=None,
+        help="Tuned open-set policy JSON (default: output/l10_open_set_policy.json).",
     )
     parser.add_argument("--models-dir", type=str, default=str(PATH_ARTIFACTS_DIR / "models"))
     parser.add_argument(
@@ -119,9 +134,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_scores_path(args: argparse.Namespace) -> tuple[Path, str]:
-    """Pick the score parquet and its probability column."""
+    """Pick the score parquet and its probability column.
+
+    Resolution order: explicit ``--scores``; the per-pair score table Layer 11
+    writes for the test split (``artifacts/scores/<split>_<variant>.parquet``);
+    then the L9 calibrated / L8 raw out-of-fold tables used for training-split runs.
+    """
     if args.scores:
         return Path(args.scores), (args.prob_col or "prob")
+
+    inference_scores = PATH_ARTIFACTS_DIR / "scores" / f"{args.split}_{args.variant}.parquet"
+    if args.split == "test" and inference_scores.exists():
+        return inference_scores, (args.prob_col or "prob")
 
     models_dir = Path(args.models_dir)
     calibrated = models_dir / f"oof_calibrated_{args.variant}.parquet"
@@ -224,6 +248,20 @@ def main() -> None:
             print(f"  thresholds defaulted: tau_match={tau_match} tau_s={tau_s}")
 
     # ------------------------------------------------------------------
+    # Open-set policy: tuned on a pseudo-open country when available, because
+    # France itself has no ground truth to tune against.
+    # ------------------------------------------------------------------
+    open_set_boost, veto_min_confidence, policy_source = resolve_open_set_policy(
+        args.open_set_boost,
+        args.veto_min_confidence,
+        args.open_set_policy,
+    )
+    print(
+        f"  open-set policy: boost={open_set_boost} veto<{veto_min_confidence} "
+        f"(from {policy_source})"
+    )
+
+    # ------------------------------------------------------------------
     # Open-set detection: unseen countries get the fallback veto.
     # ------------------------------------------------------------------
     ref_country = load_reference_countries(args.split, set(reference_ids))
@@ -237,7 +275,7 @@ def main() -> None:
     }
     print(
         f"  open-set references (veto): {len(open_set_ids):,} "
-        f"(boost={args.open_set_boost}, veto<{args.veto_min_confidence})"
+        f"(boost={open_set_boost}, veto<{veto_min_confidence})"
     )
 
     # ------------------------------------------------------------------
@@ -251,8 +289,8 @@ def main() -> None:
         tau_s=tau_s,
         margin=args.margin,
         open_set_ids=open_set_ids,
-        open_set_boost=args.open_set_boost,
-        veto_min_confidence=args.veto_min_confidence,
+        open_set_boost=open_set_boost,
+        veto_min_confidence=veto_min_confidence,
     )
 
     n_non_empty = sum(1 for ids in predictions.values() if ids)
@@ -306,8 +344,9 @@ def main() -> None:
             "tau_s_grid": args.tau_s_grid,
             "seen_countries": args.seen_countries,
             "open_set_countries": args.open_set_countries,
-            "open_set_boost": args.open_set_boost,
-            "veto_min_confidence": args.veto_min_confidence,
+            "open_set_boost": open_set_boost,
+            "veto_min_confidence": veto_min_confidence,
+            "open_set_policy_source": policy_source,
         },
         "tuned": tuned,
         "open_set_references": len(open_set_ids),

@@ -32,6 +32,7 @@ import pandas as pd
 from config import L10_OPEN_SET_COUNTRIES, L10_SEEN_COUNTRIES
 from l3_l5_blocking.buckets import assign_country, iter_source_shards
 from l6_l8_matching.features import FEATURE_NAMES, build_idf, compute_features
+from l6_l8_matching.signals import MODE_SIDECAR, MODE_ZEROS, SignalStream
 from l10_decision.decision import apply_decision_rule, write_id_list_tsv
 from l11_inference.scorer import calibrate_scores, score_matrix
 from main_l6 import load_reference_countries
@@ -156,6 +157,55 @@ def _chunks(items: list[str], size: int) -> Iterator[list[str]]:
         yield items[start : start + size]
 
 
+SCORE_SCHEMA_NAMES = ("s1_id", "cand_id", "prob", "country")
+
+
+def write_score_table(
+    path: str | Path,
+    kept: dict[str, list[tuple[str, float]]],
+    ref_country: dict[str, str] | None = None,
+    chunk: int = 1_000_000,
+) -> int:
+    """Write the scored candidate pairs the decision engine consumed.
+
+    Only candidates at/above ``tau_match`` are stored. That is lossless for the L10
+    rule (whose effective threshold is ``max(tau_match, top - margin)``), and it is
+    exactly the input ``main_l10.py --split test --scores <file>`` documents, which
+    previously did not exist anywhere in the pipeline.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    schema = pa.schema(
+        [
+            ("s1_id", pa.string()),
+            ("cand_id", pa.string()),
+            ("prob", pa.float32()),
+            ("country", pa.string()),
+        ]
+    )
+    rows = 0
+    with pq.ParquetWriter(str(out_path), schema) as writer:
+        buffer: dict[str, list] = {name: [] for name in SCORE_SCHEMA_NAMES}
+        for s1_id, pairs in kept.items():
+            country = (ref_country or {}).get(s1_id, "other")
+            for cand_id, prob in pairs:
+                buffer["s1_id"].append(s1_id)
+                buffer["cand_id"].append(cand_id)
+                buffer["prob"].append(float(prob))
+                buffer["country"].append(country)
+                rows += 1
+            if len(buffer["s1_id"]) >= chunk:
+                writer.write_table(pa.table(buffer, schema=schema))
+                for values in buffer.values():
+                    values.clear()
+        if buffer["s1_id"]:
+            writer.write_table(pa.table(buffer, schema=schema))
+    return rows
+
+
 def run_inference(
     split: str,
     candidate_pairs_path: str | Path,
@@ -174,6 +224,8 @@ def run_inference(
     max_references: Optional[int] = None,
     max_shards: Optional[int] = None,
     idf_max_shards: Optional[int] = None,
+    signals_path: Optional[str | Path] = None,
+    scores_out: Optional[str | Path] = None,
     progress=print,
 ) -> tuple[dict[str, list[str]], dict]:
     """Score the candidate set and return ``(predictions, stats)``.
@@ -193,6 +245,11 @@ def run_inference(
         max_references: dev cap on references scored (disables ``all_references``).
         max_shards: dev cap on shards read per source during record loading.
         idf_max_shards: dev cap on shards read while building the IDF.
+        signals_path: L5 retrieval-signal sidecar for this candidate set; when
+            omitted the two retrieval-signal features stay 0 (matching a model
+            trained with ``--no-signals``).
+        scores_out: optional parquet receiving ``(s1_id, cand_id, prob, country)``
+            for every candidate at/above ``tau_match``.
 
     Returns:
         ``(predictions, stats)`` where predictions maps each reference to matched
@@ -211,6 +268,10 @@ def run_inference(
 
     scorable = [ref for ref in refs_file if cand_map.get(ref)]
     progress(f"  references: {len(refs):,} | scorable: {len(scorable):,}")
+
+    signal_stream = SignalStream(signals_path)
+    signals_mode = MODE_SIDECAR if signal_stream.enabled else MODE_ZEROS
+    progress(f"  retrieval signals: {signals_mode} ({signal_stream.path or 'none'})")
 
     if idf is None:
         progress("  building IDF from candidate records ...")
@@ -237,6 +298,11 @@ def run_inference(
         row_countries: list[str] = []
 
         for ref in batch:
+            # Consume the sidecar row before any early exit: the lockstep alignment
+            # with the candidate file must hold for every reference in the batch.
+            signals_row = (
+                signal_stream.next_row(ref, cand_map[ref]) if signal_stream.enabled else None
+            )
             s1 = s1_lookup.get(ref)
             if s1 is None:
                 n_missing_record += len(cand_map[ref])
@@ -248,7 +314,9 @@ def run_inference(
                     n_missing_record += 1
                     continue
                 pair = {"rank": rank}
-                features = compute_features(s1, cand, pair, idf, None)
+                features = compute_features(
+                    s1, cand, pair, idf, signals_row[rank] if signals_row is not None else None
+                )
                 rows.append(features)
                 row_refs.append(ref)
                 row_cands.append(cand_id)
@@ -287,6 +355,11 @@ def run_inference(
         veto_min_confidence=veto_min_confidence,
     )
 
+    scores_written = 0
+    if scores_out is not None:
+        scores_written = write_score_table(scores_out, kept, ref_country)
+        progress(f"  saved per-pair scores: {scores_out} ({scores_written:,} pairs)")
+
     stats = {
         "references": len(refs),
         "scorable_references": len(scorable),
@@ -295,6 +368,9 @@ def run_inference(
         "open_set_references": len(open_set_ids),
         "non_empty": sum(1 for ids in predictions.values() if ids),
         "matched_pairs": sum(len(ids) for ids in predictions.values()),
+        "signals_mode": signals_mode,
+        "signals_rows": signal_stream.rows_read,
+        "scores_written": scores_written,
     }
     return predictions, stats
 

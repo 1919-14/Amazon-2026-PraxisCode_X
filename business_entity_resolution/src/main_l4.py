@@ -43,13 +43,20 @@ import pandas as pd
 
 from config import (
     L3_COUNTRIES,
-    PATH_ARTIFACTS_DIR,
     PATH_OUTPUT_DIR,
     RRF_K_GRID,
 )
+from l3_l5_blocking.artifacts import l3_artifact_path, l4_artifact_path
 from l3_l5_blocking.engine import CHANNEL_A, CHANNEL_C, CHANNEL_D
 from l3_l5_blocking.recall import ranked_recall_counts
 from l3_l5_blocking.rrf import fuse, ranked_ids
+from utils.coverage import (
+    CoverageError,
+    check_country_artifacts,
+    normalize_countries,
+    planned_reference_counts,
+)
+from utils.reports import merge_json_report, render_markdown_table, write_text
 
 # Reuse Layer 3 helpers so ground-truth loading and reference selection stay identical.
 from main_l3 import load_ground_truth, resolve_reference_ids
@@ -87,17 +94,25 @@ def parse_args() -> argparse.Namespace:
         default=[5, 10, 20, 50],
         help="Recall@N cutoffs reported for each k.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--reuse-existing",
+        action="store_true",
+        help="Keep fused artifacts already on disk (resume an interrupted run).",
+    )
+    parser.add_argument(
+        "--allow-missing-countries",
+        action="store_true",
+        help="Fuse the countries that exist even when others are missing (default: fail).",
+    )
+    args = parser.parse_args()
+    # Accept both `--countries us india` and `--countries us,india`.
+    args.countries = normalize_countries(args.countries)
+    return args
 
 
-def l3_artifact_path(split: str, refs: str, country: str) -> Path:
-    """Return the expected Layer 3 artifact path for one country."""
-    return PATH_ARTIFACTS_DIR / "blocking" / f"l3_{split}_{refs}_country={country}.parquet"
-
-
-def l4_artifact_path(split: str, refs: str, country: str) -> Path:
-    """Return the Layer 4 output artifact path for one country."""
-    return PATH_ARTIFACTS_DIR / "blocking" / f"l4_{split}_{refs}_country={country}.parquet"
+# Path helpers live in l3_l5_blocking.artifacts (single source of truth); they are
+# re-exported here because Layer 5 imports them from this module.
+__all__ = ["l3_artifact_path", "l4_artifact_path", "main"]
 
 
 def _to_list(value) -> list[str]:
@@ -129,6 +144,25 @@ def main() -> None:
     print(f"  split={args.split} | refs={args.refs} | countries={args.countries}")
     print(f"  k-grid={k_grid} | best-n={args.best_n} | cutoffs={cutoffs}")
 
+    coverage = check_country_artifacts(
+        "l3",
+        args.split,
+        args.refs,
+        args.countries,
+        allow_missing=args.allow_missing_countries,
+        expected_references=planned_reference_counts(args.split, args.refs, args.countries),
+        verify_counts=True,
+        remediation=f"run main_l3.py --split {args.split} --refs {args.refs} first",
+    )
+    if coverage["coverage"]:
+        print(
+            "  input coverage: "
+            + " | ".join(
+                f"{country} {share * 100:.1f}%"
+                for country, share in sorted(coverage["coverage"].items())
+            )
+        )
+
     ref_ids = resolve_reference_ids(args)
     gt_map = load_ground_truth(ref_ids) if args.split == "train" else {}
     has_ground_truth = bool(gt_map)
@@ -148,6 +182,20 @@ def main() -> None:
         if not source_path.exists():
             print(f"  ⚠️  missing L3 artifact: {source_path}")
             print("      run main_l3.py for this country first — skipping")
+            continue
+
+        if args.reuse_existing and l4_artifact_path(args.split, args.refs, country).exists():
+            reused_rows = pd.read_parquet(l4_artifact_path(args.split, args.refs, country)).shape[0]
+            print(
+                f"  ♻️  reusing existing fused artifact ({reused_rows:,} references) — "
+                "skipped from the k-grid report"
+            )
+            per_country_report[country] = {
+                "chosen_k": None,
+                "k_grid": {},
+                "reused": True,
+                "references": int(reused_rows),
+            }
             continue
 
         reference_ids, channels = load_l3_artifact(source_path)
@@ -263,28 +311,55 @@ def main() -> None:
         "elapsed_seconds": round(elapsed, 2),
     }
 
+    run_key = f"{args.split}_{args.refs}"
+    report["coverage"] = coverage
+    report["run"] = run_key
     PATH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     report_path = PATH_OUTPUT_DIR / "l4_rrf_report.json"
-    with report_path.open("w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2)
+    merged = merge_json_report(report_path, run_key, report)
 
     md_path = PATH_OUTPUT_DIR / "l4_rrf_report.md"
-    with md_path.open("w", encoding="utf-8") as f:
-        f.write("# Layer 4 RRF Report\n\n")
-        f.write(f"- split: `{args.split}` | refs: `{args.refs}` | countries: `{args.countries}`\n")
-        f.write(f"- k-grid: `{k_grid}` | best-n: `{args.best_n}` | cutoffs: `{cutoffs}`\n")
-        f.write(f"- references processed: `{total_references:,}` | elapsed: `{elapsed:.1f}s`\n\n")
-        if overall_grid:
-            f.write(f"## Overall recall by k (best k = {best_overall_k})\n\n")
-            f.write("| k | " + " | ".join(f"recall@{c}" for c in cutoffs) + " |\n")
-            f.write("|---|" + "|".join("---" for _ in cutoffs) + "|\n")
-            for k in k_grid:
-                cells = " | ".join(
-                    f"{overall_grid[f'k={k}'][f'recall@{c}'] * 100:.2f}%" for c in cutoffs
-                )
-                f.write(f"| {k} | {cells} |\n")
+    lines = [
+        "# Layer 4 RRF Report",
+        "",
+        "Every run is kept: `runs` in `l4_rrf_report.json` holds the full history.",
+        "",
+        render_markdown_table(
+            merged.get("runs", {}),
+            {
+                "split": "split",
+                "refs": "refs",
+                "best k": "best_k",
+                "references": "n_references",
+                "elapsed (s)": "elapsed_seconds",
+            },
+            lambda key, run: {
+                "split": (run.get("config") or {}).get("split"),
+                "refs": (run.get("config") or {}).get("refs"),
+            },
+            latest=merged.get("latest_run"),
+        ),
+        "",
+        f"## Latest run: `{run_key}`",
+        "",
+        f"- countries: `{args.countries}` | k-grid: `{k_grid}` | best-n: `{args.best_n}` | cutoffs: `{cutoffs}`",
+        f"- references processed: `{total_references:,}` | elapsed: `{elapsed:.1f}s`",
+        f"- input coverage: `{coverage['coverage']}`",
+        "",
+    ]
+    if overall_grid:
+        lines.append(f"## Overall recall by k (best k = {best_overall_k})")
+        lines.append("")
+        lines.append("| k | " + " | ".join(f"recall@{c}" for c in cutoffs) + " |")
+        lines.append("|" + "---|" * (len(cutoffs) + 1))
+        for k in k_grid:
+            cells = " | ".join(
+                f"{overall_grid[f'k={k}'][f'recall@{c}'] * 100:.2f}%" for c in cutoffs
+            )
+            lines.append(f"| {k} | {cells} |")
+    write_text(md_path, "\n".join(lines) + "\n")
 
-    print(f"\n  saved report: {report_path}")
+    print(f"\n  saved report: {report_path} (history preserved)")
     print(f"  saved report: {md_path}")
     print("=" * 65)
     print("🌟 LAYER 4 COMPLETE")
@@ -292,4 +367,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except CoverageError as error:
+        print(f"\n❌ COVERAGE GUARD: {error}\n")
+        raise SystemExit(2) from None
