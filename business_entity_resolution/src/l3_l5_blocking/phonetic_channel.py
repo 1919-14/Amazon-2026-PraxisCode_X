@@ -11,7 +11,7 @@ try:
     _JELLYFISH_AVAILABLE = True
 except ImportError:
     import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "jellyfish>=1.0.0", "-q"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "jellyfish>=1.0.0", "--break-system-packages", "-q"])
     import jellyfish  # type: ignore[no-redef]
     _JELLYFISH_AVAILABLE = True
 
