@@ -9,6 +9,12 @@ WORKSPACE_ROOT = PROJECT_ROOT.parent
 # Resolve dataset directory across workspace layouts
 if (PROJECT_ROOT / "dataset").exists():
     DATASET_DIR = PROJECT_ROOT / "dataset"
+elif (WORKSPACE_ROOT / "dataset").exists():
+    DATASET_DIR = WORKSPACE_ROOT / "dataset"
+elif Path("/content/student_resource/dataset").exists():
+    DATASET_DIR = Path("/content/student_resource/dataset")
+elif Path("/content/temp_dataset/student_resource/dataset").exists():
+    DATASET_DIR = Path("/content/temp_dataset/student_resource/dataset")
 elif (WORKSPACE_ROOT / "DATA SET" / "student_resource" / "dataset").exists():
     DATASET_DIR = WORKSPACE_ROOT / "DATA SET" / "student_resource" / "dataset"
 elif (PROJECT_ROOT / "DATA SET" / "student_resource" / "dataset").exists():
