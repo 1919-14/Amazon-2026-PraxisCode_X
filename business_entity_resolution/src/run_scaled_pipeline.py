@@ -112,6 +112,10 @@ def _py(script: str) -> list[str]:
     return [sys.executable, str(SRC_DIR / script)]
 
 
+PHON_TEMPLATE = "artifacts/blocking/phon_{split}_{refs}_country={country}.parquet"
+DENSE_TEMPLATE = "artifacts/blocking/dense_{split}_{refs}_country={country}.parquet"
+
+
 def build_commands(args: argparse.Namespace) -> dict[str, list[list[str]]]:
     """Return the ordered command list(s) for every stage."""
     split = "test" if args.mode == "test" else "train"
@@ -119,16 +123,36 @@ def build_commands(args: argparse.Namespace) -> dict[str, list[list[str]]]:
     countries = args.countries
     cmds: dict[str, list[list[str]]] = {s: [] for s in STAGES}
 
+    # Auto-populate phon/dense templates when --phon / --dense flags are used
+    phon_template = args.phon_template or (PHON_TEMPLATE if args.phon else None)
+    dense_template = args.dense_template or (DENSE_TEMPLATE if args.dense else None)
+
     cmds["l3"] = [_py("main_l3.py") + (
         ["--split", split, "--refs", refs, "--countries", *countries,
          "--topk", str(args.topk)]
         + (["--addr-text"] if args.addr_text else [])
         + (["--ref-sample", str(args.ref_sample)] if args.mode == "train" else [])
     )]
+
+    # Prepend phonetic artifact generation before L3 (if --phon)
+    if args.phon:
+        cmds["l3"] = [
+            _py("main_phon.py") + ["--split", split, "--refs", refs, "--countries", *countries]
+        ] + cmds["l3"]
+
+    # Prepend dense artifact generation before L3 (if --dense)
+    if args.dense:
+        for country in countries:
+            cmds["l3"] = [
+                _py("l3_l5_blocking/dense_retrieval.py") + [
+                    "--split", split, "--country", country
+                ]
+            ] + cmds["l3"]
+
     cmds["l4"] = [_py("main_l4.py") + ["--split", split, "--refs", refs, "--countries", *countries]]
 
     extras: list[str] = []
-    for template in (args.phon_template, args.dense_template):
+    for template in (phon_template, dense_template):
         if template:
             extras += ["--extra-template", template]
     cmds["l4x"] = [_py("main_l4_extra.py") + ["--split", split, "--refs", refs, "--countries", *countries, *extras]] if extras else []
