@@ -73,13 +73,22 @@ def parse_args() -> argparse.Namespace:
 
 def _paths(split: str, refs: str, country: str) -> tuple[Path, Path]:
     stem = f"phon_{split}_{refs}_country={country.lower()}"
-    return BLOCKING / f"{stem}.parquet", BLOCKING / f"l3_{split}_{refs}_country={country.lower()}.parquet"
+    l3 = BLOCKING / f"l3_{split}_{refs}_country={country.lower()}.parquet"
+    # Fall back to dense parquet when the merged L3 doesn't exist yet
+    if not l3.exists():
+        dense = BLOCKING / f"dense_{split}_{refs}_country={country.lower()}.parquet"
+        if dense.exists():
+            l3 = dense
+    return BLOCKING / f"{stem}.parquet", l3
 
 
 def load_references(split: str, refs: str, country: str, l3_path: Path, max_refs: int | None):
-    """Load S1 refs in the exact L3 reference order (required for downstream fusion)."""
+    """Load S1 refs in the exact L3/dense reference order (required for downstream fusion)."""
     if not l3_path.exists():
-        raise FileNotFoundError(f"L3 artifact missing (needed for reference order): {l3_path}")
+        raise FileNotFoundError(
+            f"Reference artifact missing (tried l3 and dense parquet): {l3_path}"
+        )
+    print(f"  [phon] using reference order from: {l3_path.name}")
     ref_ids = [str(v) for v in pq.read_table(l3_path, columns=["source1_entity_id"]).column(0).to_pylist()]
     if max_refs is not None:
         ref_ids = ref_ids[:max_refs]
