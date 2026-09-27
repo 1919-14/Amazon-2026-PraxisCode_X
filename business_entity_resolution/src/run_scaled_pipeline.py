@@ -136,9 +136,10 @@ def build_commands(args: argparse.Namespace) -> dict[str, list[list[str]]]:
 
     # Prepend phonetic artifact generation before L3 (if --phon)
     if args.phon:
-        cmds["l3"] = [
-            _py("main_phon.py") + ["--split", split, "--refs", refs, "--countries", *countries]
-        ] + cmds["l3"]
+        for country in countries:
+            cmds["l3"] = [
+                _py("main_phon.py") + ["--split", split, "--refs", refs, "--country", country]
+            ] + cmds["l3"]
 
     # Prepend dense artifact generation before L3 (if --dense)
     if args.dense:
