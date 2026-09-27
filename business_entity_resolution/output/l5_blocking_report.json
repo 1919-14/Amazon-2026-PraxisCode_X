@@ -14,7 +14,8 @@
     "k_min": 6,
     "k_max": 12,
     "ref_batch": 10000,
-    "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet"
+    "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet",
+    "extra_signals": null
   },
   "references": 1732544,
   "expected_references": 1732544,
@@ -29,7 +30,7 @@
   "reduction_ratio": 0.9999993981446478,
   "missing_artifacts": [],
   "run": "test_all",
-  "elapsed_seconds": 454.63,
+  "elapsed_seconds": 492.92,
   "runs": {
     "train_val": {
       "config": {
@@ -76,29 +77,26 @@
           "india"
         ],
         "ratio_grid": [
-          0.3,
-          0.5,
-          0.7,
-          0.9
+          0.0
         ],
-        "chosen_ratio": 0.7,
-        "k_min": 6,
-        "k_max": 12,
+        "chosen_ratio": 0.0,
+        "k_min": 50,
+        "k_max": 50,
         "ref_batch": 10000,
         "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_train_train.parquet"
       },
       "references": 100000,
-      "expected_references": 100000,
+      "expected_references": 0,
       "coverage": {
         "india": 1.0
       },
-      "candidates_kept": 635735,
-      "avg_k": 6.35735,
-      "candidate_recall": 0.7748224799080189,
-      "reduction_ratio": 0.9999993839907855,
+      "candidates_kept": 5000000,
+      "avg_k": 50.0,
+      "candidate_recall": null,
+      "reduction_ratio": 0.9999951551415721,
       "missing_artifacts": [],
       "run": "train_train",
-      "elapsed_seconds": 349.87
+      "elapsed_seconds": 160.61
     },
     "test_all": {
       "config": {
@@ -116,7 +114,8 @@
         "k_min": 6,
         "k_max": 12,
         "ref_batch": 10000,
-        "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet"
+        "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet",
+        "extra_signals": null
       },
       "references": 1732544,
       "expected_references": 1732544,
@@ -131,7 +130,7 @@
       "reduction_ratio": 0.9999993981446478,
       "missing_artifacts": [],
       "run": "test_all",
-      "elapsed_seconds": 454.63
+      "elapsed_seconds": 492.92
     }
   },
   "latest_run": "test_all",

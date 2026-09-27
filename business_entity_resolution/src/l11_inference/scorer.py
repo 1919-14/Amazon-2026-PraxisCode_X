@@ -53,14 +53,51 @@ def load_calibrator(path: str | Path | None) -> Optional[dict]:
     return None
 
 
-def score_matrix(booster: lgb.Booster, features: np.ndarray) -> np.ndarray:
-    """Predict positive-class probabilities for a ``(n, n_features)`` matrix."""
-    features = np.asarray(features, dtype=np.float32)
+def _predict(booster, features: np.ndarray) -> np.ndarray:
+    """Predict with a single thread on a contiguous float64 array.
+
+    Windows LightGBM + NumPy share OpenMP runtimes that conflict when float32
+    arrays are passed — the native LGBM_BoosterPredictForMat raises an access
+    violation at address 0x0. Using float64 (the C-API default) and a
+    single-thread call avoids the crash. The TypeError fallback handles test
+    doubles that do not accept keyword arguments.
+    """
+    # float64 + C-contiguous is what the LightGBM C API expects on Windows
+    block = np.ascontiguousarray(features, dtype=np.float64)
+    try:
+        return np.asarray(booster.predict(block, num_threads=1), dtype=np.float64)
+    except TypeError:
+        return np.asarray(booster.predict(block), dtype=np.float64)
+
+
+def score_matrix(
+    booster,
+    features: np.ndarray,
+    chunk_size: int = 50_000,
+) -> np.ndarray:
+    """Predict positive-class probabilities for a ``(n, n_features)`` matrix.
+
+    Large matrices are scored in contiguous chunks to bound native memory.
+    NaN / inf values are replaced with 0 before scoring — LightGBM's C layer
+    can null-deref on non-finite floats on Windows.
+    """
+    features = np.asarray(features, dtype=np.float64)
     if features.ndim != 2:
         raise ValueError(f"expected a 2-D feature matrix, got shape {features.shape}")
-    if features.shape[0] == 0:
+    # Sanitize: replace NaN/inf so LightGBM C layer never sees non-finite values
+    if not np.isfinite(features).all():
+        features = np.nan_to_num(features, nan=0.0, posinf=1.0, neginf=0.0)
+    n_rows = features.shape[0]
+    if n_rows == 0:
         return np.zeros(0, dtype=np.float64)
-    return np.asarray(booster.predict(features), dtype=np.float64)
+    if n_rows <= chunk_size:
+        return _predict(booster, features)
+
+    out = np.empty(n_rows, dtype=np.float64)
+    for start in range(0, n_rows, chunk_size):
+        end = min(start + chunk_size, n_rows)
+        out[start:end] = _predict(booster, features[start:end])
+    return out
 
 
 def calibrate_scores(

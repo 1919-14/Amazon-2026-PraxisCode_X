@@ -63,6 +63,7 @@ from config import (
     PATH_OUTPUT_DIR,
 )
 from l6_l8_matching.signals import SignalWriter, signals_path
+from l6_l8_matching.extra_signals import ExtraSignalWriter, extra_signals_path
 from l3_l5_blocking.buckets import dataset_candidate_rows
 from l3_l5_blocking.truncate import adaptive_truncate, coarse_score
 from utils.coverage import (
@@ -97,6 +98,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-tune", action="store_true", help="Skip ratio tuning (use --ratio).")
     parser.add_argument("--output", type=str, default=None, help="Override candidate_pairs.tsv path.")
     parser.add_argument(
+        "--l4-template",
+        type=str,
+        default=None,
+        help="L4 artifact path template with {split}/{refs}/{country}; use it to read "
+        "the extra-channel-fused l4x artifact instead of the plain L4 union.",
+    )
+    parser.add_argument(
         "--ref-batch",
         type=int,
         default=L4_REF_BATCH,
@@ -117,6 +125,24 @@ def parse_args() -> argparse.Namespace:
         "--no-signals",
         action="store_true",
         help="Skip the retrieval-signal sidecar (training and inference then both use zeros).",
+    )
+    parser.add_argument(
+        "--extra",
+        action="append",
+        default=None,
+        help="Phonetic/dense channel artifact for the extra signal sidecar "
+        "(repeatable; use {country} as a placeholder).",
+    )
+    parser.add_argument(
+        "--extra-template",
+        action="append",
+        default=None,
+        help="Extra artifact template with {split}/{refs}/{country}.",
+    )
+    parser.add_argument(
+        "--no-extra-signals",
+        action="store_true",
+        help="Skip the phonetic/dense signal sidecar.",
     )
     args = parser.parse_args()
     # Accept both `--countries us india` and `--countries us,india`.
@@ -154,21 +180,106 @@ def iter_l4_artifact_batches(path: Path, batch_size: int):
         yield reference_ids, fused
 
 
-def align_batches(l4_path: Path, l3_path: Path, batch_size: int):
-    """Yield ``(reference_ids, fused, channels_or_None)`` for aligned L4/L3 batches.
+def iter_extra_batches(path: Path, batch_size: int):
+    """Yield ``(reference_ids, score_maps)`` from a phonetic/dense artifact.
 
-    The two artifacts are written row-aligned by the upstream layers, but the
+    ``score_maps`` is a list aligned with ``reference_ids``; each element maps a
+    candidate id to its channel score for that reference.
+    """
+    parquet_file = pq.ParquetFile(str(path))
+    columns = list(parquet_file.schema_arrow.names)
+    score_col = None
+    for candidate in ("phon_scores", "dense_scores", "addr_scores"):
+        if candidate in columns:
+            score_col = candidate
+            break
+    use_cols = ["source1_entity_id", "candidate_entity_ids"]
+    if score_col:
+        use_cols.append(score_col)
+    for batch in parquet_file.iter_batches(batch_size=batch_size, columns=use_cols):
+        data = batch.to_pydict()
+        refs = [str(v) for v in data["source1_entity_id"]]
+        cands_col = data["candidate_entity_ids"]
+        scores_col = data.get(score_col) if score_col else None
+        maps: list[dict[str, float]] = []
+        for i, cands in enumerate(cands_col):
+            cands = [] if cands is None else cands
+            if scores_col is not None and scores_col[i] is not None:
+                maps.append({str(c): float(s) for c, s in zip(cands, scores_col[i])})
+            else:
+                maps.append({str(c): 0.0 for c in cands})
+        yield refs, maps
+
+
+def classify_extra(path: Path) -> str:
+    """Classify an extra artifact as ``phon`` / ``dense`` / ``addr`` by filename."""
+    name = path.name.lower()
+    if "phon" in name:
+        return "phon"
+    if "dense" in name:
+        return "dense"
+    if "addr" in name:
+        return "addr"
+    return "extra"
+
+
+def align_batches(l4_path: Path, l3_path: Path, batch_size: int, extra_paths: tuple = ()):
+    """Yield ``(reference_ids, fused, channels, extra_maps)`` for aligned batches.
+
+    The artifacts are written row-aligned by the upstream layers, but the
     alignment is verified per batch rather than assumed: if a batch disagrees the
     channel evidence is dropped for it (``channels=None``), which degrades the
     coarse score to pure RRF order instead of silently mixing unrelated rows.
+    ``extra_maps`` is ``None`` unless ``extra_paths`` were supplied.
     """
     l3_iter = (
         iter_l3_artifact_batches(l3_path, batch_size) if l3_path.exists() else iter(())
     )
+    extra_names = [classify_extra(Path(p)) for p in extra_paths]
+    extra_iters = [iter_extra_batches(Path(p), batch_size) for p in extra_paths]
     for (l4_ids, fused), (l3_ids, channels) in zip(
         iter_l4_artifact_batches(l4_path, batch_size), l3_iter
     ):
-        yield l4_ids, fused, (channels if l3_ids == l4_ids else None)
+        extra_maps = None
+        if extra_iters:
+            extra_maps = [dict() for _ in l4_ids]
+            aligned = True
+            for name, it in zip(extra_names, extra_iters):
+                try:
+                    erefs, emaps = next(it)
+                except StopIteration:
+                    aligned = False
+                    break
+                if erefs != l4_ids:
+                    aligned = False
+                    break
+                for i, m in enumerate(emaps):
+                    for cand, score in m.items():
+                        extra_maps[i].setdefault(cand, {})[name] = score
+            if not aligned:
+                extra_maps = None
+        yield l4_ids, fused, (channels if l3_ids == l4_ids else None), extra_maps
+
+
+def resolve_l4_path(args: argparse.Namespace, country: str) -> Path:
+    """Resolve the L4-family artifact for one country (plain L4 or an override)."""
+    if args.l4_template:
+        return Path(
+            args.l4_template.format(country=country, split=args.split, refs=args.refs)
+        )
+    return l4_artifact_path(args.split, args.refs, country)
+
+
+def resolve_extra_paths(args: argparse.Namespace, country: str) -> list[Path]:
+    """Resolve the phonetic/dense artifacts for one country."""
+    resolved: list[Path] = []
+    for raw in args.extra or []:
+        resolved.append(Path(raw.replace("{country}", country)))
+    for template in args.extra_template or []:
+        resolved.append(
+            Path(template.format(country=country, split=args.split, refs=args.refs))
+        )
+    return [p for p in resolved if p.exists()]
 
 
 def choose_ratio(
@@ -256,13 +367,13 @@ def main() -> None:
     tune_ratios = ratios if (has_ground_truth and not args.no_tune) else [args.ratio]
     if has_ground_truth and not args.no_tune:
         for country in args.countries:
-            l4_path = l4_artifact_path(args.split, args.refs, country)
+            l4_path = resolve_l4_path(args, country)
             l3_path = l3_artifact_path(args.split, args.refs, country)
             if not l4_path.exists():
                 missing_artifacts.append(country)
                 continue
 
-            for reference_ids, fused_batch, channels_batch in align_batches(
+            for reference_ids, fused_batch, channels_batch, _extra_batch in align_batches(
                 l4_path, l3_path, args.ref_batch
             ):
                 for i, (s1_id, fused) in enumerate(zip(reference_ids, fused_batch)):
@@ -317,20 +428,32 @@ def main() -> None:
         signal_file = signals_path(args.split, args.refs)
         signal_writer = SignalWriter(signal_file)
 
+    # Extra-channel (phonetic/dense) signals: same lockstep contract as the lexical
+    # sidecar. Absent artifacts -> all-zero columns, which keeps train/serve parity.
+    extra_writer = None
+    extra_file = None
+    extra_paths_by_country: dict[str, list[Path]] = {}
+    if not args.no_extra_signals and (args.extra or args.extra_template):
+        extra_file = extra_signals_path(args.split, args.refs)
+        extra_writer = ExtraSignalWriter(extra_file)
+        for country in args.countries:
+            extra_paths_by_country[country] = resolve_extra_paths(args, country)
+
     with out_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow(["source1_entity_id", "candidate_entity_ids"])
 
         for country in args.countries:
-            l4_path = l4_artifact_path(args.split, args.refs, country)
+            l4_path = resolve_l4_path(args, country)
             l3_path = l3_artifact_path(args.split, args.refs, country)
             if not l4_path.exists():
                 if country not in missing_artifacts:
                     missing_artifacts.append(country)
                 continue
 
-            for reference_ids, fused_batch, channels_batch in align_batches(
-                l4_path, l3_path, args.ref_batch
+            country_extras = extra_paths_by_country.get(country, [])
+            for reference_ids, fused_batch, channels_batch, extra_batch in align_batches(
+                l4_path, l3_path, args.ref_batch, tuple(country_extras)
             ):
                 for i, (s1_id, fused) in enumerate(zip(reference_ids, fused_batch)):
                     channel_lists = (
@@ -362,11 +485,19 @@ def main() -> None:
                             [agreement.get(candidate, 0) / n_channels for candidate in kept],
                         )
 
-                del fused_batch, channels_batch
+                    if extra_writer is not None:
+                        per_ref = extra_batch[i] if extra_batch else {}
+                        phon_scores = [float(per_ref.get(c, {}).get("phon", 0.0)) for c in kept]
+                        dense_scores = [float(per_ref.get(c, {}).get("dense", 0.0)) for c in kept]
+                        extra_writer.add(s1_id, kept, phon_scores, dense_scores)
+
+                del fused_batch, channels_batch, extra_batch
                 gc.collect()
 
     if signal_writer is not None:
         signal_writer.close()
+    if extra_writer is not None:
+        extra_writer.close()
 
     # ------------------------------------------------------------------
     # Output coverage verification: every country that was blocked must appear
@@ -432,6 +563,7 @@ def main() -> None:
             "k_max": args.k_max,
             "ref_batch": args.ref_batch,
             "signals": str(signal_file) if signal_file is not None else None,
+            "extra_signals": str(extra_file) if extra_file is not None else None,
         },
         "references": rows_written,
         "expected_references": expected_rows,

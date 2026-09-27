@@ -52,6 +52,11 @@ from l6_l8_matching.signals import (
     load_signals_for_pairs,
     signals_path,
 )
+from l6_l8_matching.extra_signals import (
+    extra_signals_available,
+    extra_signals_path,
+    load_extra_signals_for_pairs,
+)
 
 PAIR_COLUMNS = ["s1_id", "cand_id", "label", "neg_type", "rank"]
 RECORD_COLUMNS = [
@@ -60,7 +65,10 @@ RECORD_COLUMNS = [
     "name_core",
     "name_norm",
     "name_tokens",
+    "name_phonetic",
     "name_legal_suffix",
+    "script_type",
+    "is_missing_name",
     "addr_norm",
     "addr_tokens",
     "addr_house_number",
@@ -106,6 +114,18 @@ def parse_args() -> argparse.Namespace:
         "--no-signals",
         action="store_true",
         help="Force retrieval features to 0 (only valid if inference does the same).",
+    )
+    parser.add_argument(
+        "--extra-signals",
+        type=str,
+        default=None,
+        help="Extra-channel sidecar (phonetic/dense scores); default is the "
+        "sidecar for --signals-refs. Missing sidecar -> ret_phon_*/ret_dense_* stay 0.",
+    )
+    parser.add_argument(
+        "--no-extra-signals",
+        action="store_true",
+        help="Force the extra-channel retrieval features to 0.",
     )
     parser.add_argument("--l4-dir", type=str, default=None, help="Legacy: L4 artifact dir for RRF scores.")
     parser.add_argument("--l3-dir", type=str, default=None, help="Legacy: L3 artifact dir for channel agreement.")
@@ -256,6 +276,28 @@ def main() -> None:
             print("      ret_rrf_score / ret_retriever_agreement will be 0 — run main_l5.py")
             print("      (it writes the sidecar) or pass --signals <path> to match inference")
 
+    # Extra-channel (phonetic/dense) signals. Optional: when the sidecar is absent
+    # both training and inference read zeros, so ret_phon_* / ret_dense_* stay 0.
+    extra_mode = "zeros"
+    extra_source = None
+    extra_joined = 0
+    if not args.no_signals and not args.no_extra_signals:
+        extra_sidecar = (
+            Path(args.extra_signals)
+            if args.extra_signals
+            else extra_signals_path(args.split, args.signals_refs)
+        )
+        if extra_sidecar.exists():
+            extra = load_extra_signals_for_pairs(extra_sidecar, needed)
+            for key, values in extra.items():
+                signals.setdefault(key, {}).update(values)
+            extra_mode = "sidecar"
+            extra_source = str(extra_sidecar)
+            extra_joined = len(extra)
+            print(f"  extra signals from sidecar: {extra_sidecar.name} ({extra_joined:,} pairs)")
+        else:
+            print(f"  extra signals: none at {extra_sidecar} — phon/dense features = 0")
+
     # IDF table from candidate name tokens.
     token_df: Counter[str] = Counter()
     for record in cand_lookup.values():
@@ -335,8 +377,12 @@ def main() -> None:
         "signals_source": signals_source,
         "signals_refs": args.signals_refs,
         "signals_joined": len(signals),
+        "extra_signals_mode": extra_mode,
+        "extra_signals_source": extra_source,
+        "extra_signals_joined": extra_joined,
         "pairs": str(pairs_path),
         "features": len(FEATURE_NAMES),
+        "feature_names": list(FEATURE_NAMES),
         "rows": written,
         "idf_documents": len(cand_lookup),
         "legacy_signal_join": bool(args.l3_dir or args.l4_dir),

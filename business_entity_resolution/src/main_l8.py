@@ -44,6 +44,7 @@ from sklearn.metrics import roc_auc_score
 from config import L8_N_FOLDS, PATH_ARTIFACTS_DIR, PATH_OUTPUT_DIR, SEED
 from l6_l8_matching.features import FEATURE_NAMES
 from l6_l8_matching.model import top_importances, train_full, train_oof
+from l6_l8_matching.stack import train_stack
 
 # Reuse the official scorer and the chunked ground-truth loader.
 try:
@@ -58,6 +59,18 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the Layer 8 run."""
     parser = argparse.ArgumentParser(description="Layer 8 LightGBM matcher training")
     parser.add_argument("--variant", choices=["a", "b", "both"], default="both")
+    parser.add_argument(
+        "--model-kind",
+        choices=["lgbm", "stack"],
+        default="lgbm",
+        help="Single LightGBM matcher (default) or the GBDT stack ensemble.",
+    )
+    parser.add_argument(
+        "--bases",
+        nargs="+",
+        default=["lgbm", "catboost", "xgboost"],
+        help="Stack base learners (unavailable ones are skipped).",
+    )
     parser.add_argument("--split", choices=["train", "test"], default="train")
     parser.add_argument("--n-folds", type=int, default=L8_N_FOLDS)
     parser.add_argument("--n-jobs", type=int, default=-1, help="LightGBM threads (-1 = all).")
@@ -113,9 +126,18 @@ def evaluate_variant(df: pd.DataFrame, args, out_dir: Path) -> dict:
         )
 
     t0 = time.time()
-    oof, models, importances = train_oof(
-        df, feature_names, n_folds=args.n_folds, seed=args.seed, params={"n_jobs": args.n_jobs}
-    )
+    stack_result = None
+    if args.model_kind == "stack":
+        stack_result = train_stack(
+            df, feature_names, n_folds=args.n_folds, seed=args.seed, bases=tuple(args.bases)
+        )
+        oof = stack_result.oof_prob
+        importances = stack_result.importances
+        print(f"  stack bases: {stack_result.bases}")
+    else:
+        oof, _models, importances = train_oof(
+            df, feature_names, n_folds=args.n_folds, seed=args.seed, params={"n_jobs": args.n_jobs}
+        )
     train_time = time.time() - t0
 
     labels = df["label"].to_numpy()
@@ -164,10 +186,14 @@ def evaluate_variant(df: pd.DataFrame, args, out_dir: Path) -> dict:
         }
     ).to_parquet(oof_path, index=False)
 
-    # Fit and export the full model.
-    full_model = train_full(df, feature_names, seed=args.seed, params={"n_jobs": args.n_jobs})
-    model_path = out_dir / f"lgbm_variant_{args.variant}.txt"
-    full_model.booster_.save_model(str(model_path))
+    # Export the model. Stack: per-fold base models + meta (averaged at inference);
+    # LightGBM: a single full-data booster.
+    if stack_result is not None:
+        model_path = stack_result.save(out_dir / f"stack_{args.variant}")
+    else:
+        full_model = train_full(df, feature_names, seed=args.seed, params={"n_jobs": args.n_jobs})
+        model_path = out_dir / f"lgbm_variant_{args.variant}.txt"
+        full_model.booster_.save_model(str(model_path))
 
     top = top_importances(importances, 10)
     print(f"  macro F0.5 (OOF) = {best['macro_f05']:.4f} at tau_match={best['tau_match']} tau_s={best['tau_s']}")
@@ -175,6 +201,8 @@ def evaluate_variant(df: pd.DataFrame, args, out_dir: Path) -> dict:
 
     return {
         "variant": args.variant,
+        "model_kind": args.model_kind,
+        "bases": (stack_result.bases if stack_result is not None else None),
         "pairs": int(len(df)),
         "references": len(ref_ids),
         "features": len(feature_names),

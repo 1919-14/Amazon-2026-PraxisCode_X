@@ -5,7 +5,7 @@ Every run is kept: `runs` in `l5_blocking_report.json` holds the full history.
 | run | split | refs | references | avg K | recall | ratio |
 |---|---|---|---|---|---|---|
 | `test_all` (latest) | test | all | 1732544 | 6.000250498688634 | n/a | 0.9 |
-| `train_train` | train | train | 100000 | 6.35735 | 77.48% | 0.7 |
+| `train_train` | train | train | 100000 | 50.0 | n/a | 0.0 |
 | `train_val` | train | val | 30000 | 6.879266666666667 | 57.34% | 0.7 |
 
 ## Latest run: `test_all`

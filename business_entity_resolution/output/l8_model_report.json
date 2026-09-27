@@ -27,64 +27,66 @@
   "variants": {
     "a": {
       "variant": "a",
-      "pairs": 285370,
-      "references": 30000,
-      "features": 27,
-      "oof_auc": 0.9991844687001943,
-      "hard_negatives_in_decision_set": 97673,
+      "model_kind": "lgbm",
+      "bases": null,
+      "pairs": 1862159,
+      "references": 100000,
+      "features": 45,
+      "oof_auc": 0.9972072744178314,
+      "hard_negatives_in_decision_set": 934716,
       "comparable": true,
-      "macro_f05": 0.7604660293065704,
+      "macro_f05": 0.8416426137002252,
       "tau_match": 0.2,
-      "tau_s": 0.4,
+      "tau_s": 0.5,
       "margin": 0.05,
-      "train_seconds": 18.72,
+      "train_seconds": 152.25,
       "top_features": [
         [
           "name_idf_overlap",
-          3441.0
-        ],
-        [
-          "addr_char3_jaccard",
-          3240.2
-        ],
-        [
-          "struct_addr_len_ratio",
-          2883.8
-        ],
-        [
-          "name_token_jaccard",
-          2283.2
+          2319.6
         ],
         [
           "addr_token_jaccard",
-          2163.8
+          2012.4
         ],
         [
-          "addr_street_jaccard",
-          1430.2
+          "struct_addr_len_ratio",
+          1583.6
         ],
         [
-          "name_char3_jaccard",
-          1318.6
+          "name_phonetic_jaccard",
+          1484.8
         ],
         [
-          "struct_name_len_ratio",
-          1113.2
+          "name_token_jaccard",
+          1445.2
         ],
         [
           "name_jaro_winkler",
-          1076.6
+          1291.8
         ],
         [
-          "name_ratio",
-          1072.8
+          "struct_name_len_ratio",
+          1271.0
+        ],
+        [
+          "addr_partial_ratio",
+          1178.2
+        ],
+        [
+          "ret_rrf_score",
+          1144.8
+        ],
+        [
+          "addr_char3_jaccard",
+          1125.0
         ]
       ],
       "oof_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\oof_a.parquet",
       "model_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\lgbm_variant_a.txt",
       "signals_mode": "sidecar",
       "signals_source": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_train_train.parquet",
-      "signals_joined": 0,
+      "signals_joined": 1239015,
       "feature_provenance": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\features\\features_variant_a.meta.json"
     }
   },

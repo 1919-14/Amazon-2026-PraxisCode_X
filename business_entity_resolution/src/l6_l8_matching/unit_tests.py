@@ -19,6 +19,7 @@ if str(SRC_DIR) not in sys.path:
 
 from l6_l8_matching.features import (
     FEATURE_NAMES,
+    N_FEATURES,
     build_idf,
     compute_features,
     compute_retrieval_features,
@@ -154,10 +155,11 @@ def test_variant_b_removes_hard_negatives() -> None:
 
 
 def test_feature_vector_shape() -> None:
-    """There are exactly 27 features and compute_features returns all of them."""
-    assert len(FEATURE_NAMES) == 27
+    """There are exactly 45 features and compute_features returns all of them."""
+    assert len(FEATURE_NAMES) == 45
+    assert N_FEATURES == 45
     features = compute_features(_record(), _record(), {"rank": 0}, build_idf({}, 10))
-    assert len(features) == 27
+    assert len(features) == 45
     assert all(isinstance(v, float) for v in features)
 
 
@@ -365,19 +367,64 @@ def test_retrieval_features_use_joined_signals() -> None:
         rec, rec, {"rank": 0}, {"rrf_score": 0.25, "channel_agreement": 0.75}
     )
     without = compute_retrieval_features(rec, rec, {"rank": 0}, None)
-    # Order: [exact_key_hit, rrf_score, agreement, rank, retrieved, rank_inverse].
-    assert len(with_signals) == 6
+    # Order: [exact_key_hit, rrf_score, agreement, rank, retrieved, rank_inverse,
+    #         phon_score, phon_hit, dense_score, dense_hit].
+    assert len(with_signals) == 10
     assert abs(with_signals[1] - 0.25) < 1e-6
     assert abs(with_signals[2] - 0.75) < 1e-6
     assert without[1] == 0.0 and without[2] == 0.0
     assert with_signals[0] == 1.0
     assert with_signals[4] == 1.0 and without[4] == 1.0
-    # The full 27-feature vector keeps the same values at the documented indices,
+    # Extra-channel signals populate ret_phon_* / ret_dense_* and default to 0.
+    extra = compute_retrieval_features(
+        rec, rec, {"rank": 0}, {"phon_score": 2.0, "dense_score": 0.8}
+    )
+    assert extra[6] == 2.0 and extra[7] == 1.0
+    assert abs(extra[8] - 0.8) < 1e-6 and extra[9] == 1.0
+    assert without[6] == 0.0 and without[8] == 0.0
+    # The full 45-feature vector keeps the same values at the documented indices,
     # which is what guarantees model/feature ordering alignment at inference.
     full = compute_features(rec, rec, {"rank": 0}, {}, {"rrf_score": 0.25})
     assert len(full) == len(FEATURE_NAMES)
     assert abs(full[FEATURE_NAMES.index("ret_rrf_score")] - 0.25) < 1e-6
     assert full[FEATURE_NAMES.index("ret_exact_key_hit")] == 1.0
+
+
+def test_stack_oof_and_roundtrip() -> None:
+    """Stack trains leak-free OOF, predicts, and round-trips through disk."""
+    import tempfile
+
+    import numpy as np
+    import pandas as pd
+
+    from l6_l8_matching.stack import load_stack, train_stack
+
+    rng = np.random.default_rng(0)
+    n = 240
+    df = pd.DataFrame(
+        {
+            "s1_id": [f"S1-{i % 24}" for i in range(n)],
+            "label": (rng.random(n) > 0.5).astype(int),
+            "name_ratio": rng.random(n),
+        }
+    )
+    for name in FEATURE_NAMES:
+        if name not in df.columns:
+            df[name] = rng.random(n)
+    # Make the label learnable from name_ratio so the stack fits something real.
+    df["label"] = (df["name_ratio"] > 0.5).astype(int)
+
+    result = train_stack(df, FEATURE_NAMES, n_folds=3, bases=("lgbm",))
+    assert result.oof_prob.shape == (n,)
+    assert result.bases == ["lgbm"]
+    assert 0.0 <= float(np.mean(result.oof_prob)) <= 1.0
+
+    with tempfile.TemporaryDirectory() as directory:
+        result.save(directory)
+        loaded = load_stack(directory)
+        probs = loaded.predict_proba(df)
+        assert len(probs) == n
+        assert all(0.0 <= float(p) <= 1.0 for p in probs)
 
 
 def run_all_tests() -> bool:
@@ -388,7 +435,7 @@ def run_all_tests() -> bool:
         ("Sampling for singleton", test_sampling_for_singleton),
         ("Easy negatives excluded", test_easy_negatives_exclude_candidates_and_truth),
         ("Variant B drops hard negatives", test_variant_b_removes_hard_negatives),
-        ("Feature vector shape (27)", test_feature_vector_shape),
+        ("Feature vector shape (45)", test_feature_vector_shape),
         ("Identical records high sim", test_identical_records_high_similarity),
         ("Different records flag conflicts", test_different_records_flag_conflicts),
         ("IDF overlap weights", test_idf_overlap_weights_rare_tokens),
@@ -401,6 +448,7 @@ def run_all_tests() -> bool:
         ("Signal sidecar round-trip + lockstep", test_signal_writer_roundtrip_and_lockstep),
         ("Signal guard + disabled stream", test_signal_stream_disabled_and_guard),
         ("Retrieval features use signals", test_retrieval_features_use_joined_signals),
+        ("Stack OOF + save/load round-trip", test_stack_oof_and_roundtrip),
     ]
 
     print("\n" + "=" * 60)

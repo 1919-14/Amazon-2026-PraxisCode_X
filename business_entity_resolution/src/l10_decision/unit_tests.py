@@ -24,6 +24,11 @@ from l10_decision.decision import (  # noqa: E402
     tune_thresholds,
     write_id_list_tsv,
 )
+from l10_decision.decision_v2 import (  # noqa: E402
+    apply_decision_v2,
+    entity_expected_f05,
+    tune_decision_v2,
+)
 from l1_validation.metrics import evaluate_with_thresholds  # noqa: E402
 
 
@@ -266,6 +271,56 @@ def test_veto_impact_preview_counts_references() -> None:
     assert score_quantiles([], quantiles=(0.5,)) == {"q50": 0.0}
 
 
+def test_entity_expected_f05_keeps_strong_drops_weak():
+    """Entity-level selection keeps the confident prefix and drops weak candidates."""
+    kept = entity_expected_f05(
+        [("S2-a", 0.95), ("S2-b", 0.90), ("S2-c", 0.05)], recall_hat=0.8
+    )
+    assert "S2-a" in kept and "S2-b" in kept
+    assert "S2-c" not in kept
+    # All-weak scores must fall back to the singleton (empty) decision.
+    assert entity_expected_f05([("S2-x", 0.02), ("S2-y", 0.01)], recall_hat=0.8) == []
+
+
+def test_decision_v2_per_country_and_veto():
+    """Per-country recall_hat is applied and the open-set veto empties low scores."""
+    grouped = group_scores(
+        {
+            ("S1-in", "S2-1"): 0.9,
+            ("S1-in", "S2-2"): 0.85,
+            ("S1-fr", "S2-3"): 0.4,
+        }
+    )
+    country = {"S1-in": "india", "S1-fr": "france"}
+    preds = apply_decision_v2(
+        grouped,
+        ["S1-in", "S1-fr"],
+        recall_hat=0.8,
+        per_country={"india": 0.85},
+        country_by_ref=country,
+        open_set_ids=["S1-fr"],
+        veto_min_confidence=0.5,
+    )
+    assert preds["S1-in"], preds
+    assert preds["S1-fr"] == []  # 0.4 < veto floor
+
+
+def test_decision_v2_tuner_returns_policy():
+    """The tuner returns a usable policy and a non-negative score."""
+    scores = {("S1-a", "S2-1"): 0.9, ("S1-a", "S2-2"): 0.1, ("S1-b", "S2-3"): 0.05}
+    gt = {"S1-a": {"S2-1"}, "S1-b": set()}
+    policy = tune_decision_v2(
+        scores,
+        gt,
+        ["S1-a", "S1-b"],
+        country_by_ref={"S1-a": "india", "S1-b": "india"},
+        recall_hats=(0.7, 0.9),
+        tau_floors=(0.0, 0.1),
+    )
+    assert policy["macro_f05"] >= 0.0
+    assert "recall_hat" in policy and "per_country" in policy
+
+
 def run_all_tests() -> bool:
     """Run the L10 test suite and report pass/fail."""
     tests = [
@@ -283,6 +338,9 @@ def run_all_tests() -> bool:
         ("Open-set tuner beats config default", test_open_set_tuning_beats_config_default),
         ("Open-set policy precedence", test_open_set_policy_persistence_and_precedence),
         ("Veto impact preview", test_veto_impact_preview_counts_references),
+        ("Entity-level expected F0.5", test_entity_expected_f05_keeps_strong_drops_weak),
+        ("Decision v2 per-country + veto", test_decision_v2_per_country_and_veto),
+        ("Decision v2 tuner policy", test_decision_v2_tuner_returns_policy),
     ]
 
     print("\n" + "=" * 60)

@@ -1,0 +1,11 @@
+{
+  "macro_f05": 0.8875430991732376,
+  "recall_hat": 0.85,
+  "tau_floor": 0.5,
+  "per_country": {
+    "india": 0.85
+  },
+  "country_macro": {
+    "india": 0.8875430991732376
+  }
+}

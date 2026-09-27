@@ -1,6 +1,6 @@
 {
   "config": {
-    "candidates": "..\\output\\candidate_pairs_val.tsv",
+    "candidates": "..\\output\\candidate_pairs_train_k50.tsv",
     "split": "train",
     "countries": [
       "us",
@@ -17,26 +17,26 @@
   },
   "totals": {
     "a": {
-      "pos": 59553,
-      "hard": 97673,
-      "easy": 128144,
-      "pairs": 285370,
-      "refs": 30000
+      "pos": 304299,
+      "hard": 934716,
+      "easy": 623144,
+      "pairs": 1862159,
+      "refs": 100000
     },
     "b": {
-      "pos": 59553,
+      "pos": 304299,
       "hard": 0,
-      "easy": 128144,
-      "pairs": 187697,
-      "refs": 30000
+      "easy": 623144,
+      "pairs": 927443,
+      "refs": 100000
     }
   },
   "per_country": {
-    "us": {
-      "references": 30000,
-      "pairs_a": 285370,
-      "pairs_b": 187697
+    "india": {
+      "references": 100000,
+      "pairs_a": 1862159,
+      "pairs_b": 927443
     }
   },
-  "elapsed_seconds": 20.37
+  "elapsed_seconds": 58.26
 }

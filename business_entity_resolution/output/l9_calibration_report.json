@@ -9,34 +9,31 @@
   },
   "options": {
     "none": {
-      "auc": 0.9883584121620557,
-      "brier": 0.04209926988023424,
-      "log_loss": 0.13853178264608912,
-      "ece": 0.006834376328663098,
-      "macro_f05": 0.7937463009861225
+      "auc": 0.9953454581734362,
+      "brier": 0.022788561575544007,
+      "log_loss": 0.07602479936158706,
+      "ece": 0.00400773154887262,
+      "macro_f05": 0.8416426137002252
     },
     "global": {
-      "auc": 0.9883167938936532,
-      "brier": 0.0420182918965293,
-      "log_loss": 0.13751188959537758,
-      "ece": 0.00039113615679189597,
-      "macro_f05": 0.8049603776660327
+      "auc": 0.9953282737889803,
+      "brier": 0.022741374716721687,
+      "log_loss": 0.07529664829539102,
+      "ece": 0.00012497358426595944,
+      "macro_f05": 0.8518653831625764
     },
     "per_country": {
-      "auc": 0.9883167938936532,
-      "brier": 0.0420182918965293,
-      "log_loss": 0.13751188959537758,
-      "ece": 0.00039113615679189597,
-      "macro_f05": 0.8049603776660327
+      "auc": 0.9953282737889803,
+      "brier": 0.022741374716721687,
+      "log_loss": 0.07529664829539102,
+      "ece": 0.00012497358426595944,
+      "macro_f05": 0.8518653831625764
     }
   },
-  "baseline_ece": 0.006834376328663098,
-  "baseline_macro_f05": 0.7937463009861225,
-  "eligible": [
-    "global",
-    "per_country"
-  ],
-  "chosen": "global",
+  "baseline_ece": 0.00400773154887262,
+  "baseline_macro_f05": 0.8416426137002252,
+  "eligible": [],
+  "chosen": "none",
   "calibrator_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\isotonic_a.json",
   "calibrated_oof_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\oof_calibrated_a.parquet"
 }

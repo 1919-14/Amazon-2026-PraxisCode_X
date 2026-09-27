@@ -20,6 +20,13 @@ python business_entity_resolution/src/main_l11.py --variant a --max-references 5
 
 from __future__ import annotations
 
+import os
+# Must be set BEFORE lightgbm / numpy are imported to prevent the Windows
+# OpenMP DLL conflict (lib_lightgbm.dll vs vcomp.dll) that causes:
+# OSError: exception: access violation reading 0x0000000000000000
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("LIGHTGBM_NUM_THREADS", "1")
+
 import argparse
 import json
 import subprocess
@@ -33,7 +40,7 @@ for _p in (str(SRC_DIR), str(PROJECT_ROOT)):
         sys.path.insert(0, str(_p))
 
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 from config import (
     DATASET_DIR,
@@ -55,6 +62,7 @@ from l11_inference.inference import (
 )
 from l11_inference.scorer import load_booster, load_calibrator
 from l6_l8_matching.signals import MODE_SIDECAR, MODE_ZEROS, signals_path
+from l6_l8_matching.extra_signals import extra_signals_path
 from utils.coverage import CoverageError, check_reference_coverage
 from utils.reports import load_json_report, merge_json_report, render_markdown_table, write_text
 
@@ -75,6 +83,18 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Booster path (default: artifacts/models/lgbm_variant_<variant>.txt).",
+    )
+    parser.add_argument(
+        "--model-kind",
+        choices=["lgbm", "stack"],
+        default="lgbm",
+        help="Single LightGBM booster (default) or the GBDT stack ensemble.",
+    )
+    parser.add_argument(
+        "--stack-dir",
+        type=str,
+        default=None,
+        help="Stack directory (default: artifacts/models/stack_<variant>).",
     )
     parser.add_argument(
         "--calibrator",
@@ -124,6 +144,17 @@ def parse_args() -> argparse.Namespace:
         help="Force retrieval features to 0 (must match how the booster was trained).",
     )
     parser.add_argument(
+        "--extra-signals",
+        type=str,
+        default=None,
+        help="Extra-channel sidecar (phonetic/dense); default: derived from --signals-refs.",
+    )
+    parser.add_argument(
+        "--no-extra-signals",
+        action="store_true",
+        help="Force the extra-channel retrieval features to 0.",
+    )
+    parser.add_argument(
         "--allow-signal-mismatch",
         action="store_true",
         help="Run even when the booster was trained with signals the sidecar cannot supply.",
@@ -163,6 +194,17 @@ def parse_args() -> argparse.Namespace:
         help="Output candidate TSV (default: output/candidate_pairs[_val].tsv).",
     )
     parser.add_argument("--no-validate", action="store_true", help="Skip the official validator.")
+    parser.add_argument(
+        "--decision-v2",
+        action="store_true",
+        help="Apply the entity-level expected-F0.5 decision (needs a tuned policy).",
+    )
+    parser.add_argument(
+        "--decision-v2-policy",
+        type=str,
+        default=None,
+        help="Tuned decision-v2 policy JSON (default: output/l10_decision_v2_policy.json).",
+    )
     return parser.parse_args()
 
 
@@ -313,7 +355,13 @@ def main() -> None:
     print(f"  candidates: {candidate_in}")
     print(f"  model     : {model_path}")
 
-    if not model_path.exists():
+    stack_dir = Path(args.stack_dir) if args.stack_dir else (PATH_ARTIFACTS_DIR / "models" / f"stack_{args.variant}")
+    if args.model_kind == "stack":
+        if not (stack_dir / "stack_meta.json").exists():
+            print(f"  ❌ stack not found: {stack_dir}")
+            print("     run main_l8.py --model-kind stack first.")
+            raise SystemExit(1)
+    elif not model_path.exists():
         print(f"  ❌ model not found: {model_path}")
         print("     run main_l8.py first to train and export the matcher.")
         raise SystemExit(1)
@@ -325,7 +373,18 @@ def main() -> None:
     tau_match, tau_s, source = resolve_thresholds(args)
     print(f"  thresholds: tau_match={tau_match} tau_s={tau_s} margin={args.margin} (from {source})")
 
-    booster = load_booster(model_path)
+    booster = None
+    stack_scorer = None
+    if args.model_kind == "stack":
+        # Lazy import: keeps scikit-learn out of the LightGBM-only inference
+        # process (Windows OpenMP access violation otherwise).
+        from l6_l8_matching.stack import load_stack
+
+        stack_scorer = load_stack(stack_dir)
+        print(f"  model kind: stack ({stack_scorer.bases}) from {stack_dir}")
+    else:
+        booster = load_booster(model_path)
+        print(f"  model kind: lgbm ({model_path.name})")
     calibrator = None
     if not args.no_calibration:
         calibrator = load_calibrator(calibrator_path)
@@ -346,6 +405,39 @@ def main() -> None:
     )
 
     signals_file, signals_mode = resolve_signals(args)
+
+    # Extra-channel sidecar (phonetic/dense). Optional; absent -> features stay 0.
+    extra_signals_file = None
+    if not args.no_signals and not args.no_extra_signals:
+        refs_for_signals = args.signals_refs or ("all" if args.split == "test" else "val")
+        candidate_extra = (
+            Path(args.extra_signals)
+            if args.extra_signals
+            else extra_signals_path(args.split, refs_for_signals)
+        )
+        if candidate_extra.exists():
+            extra_signals_file = candidate_extra
+            print(f"  extra signals: sidecar {candidate_extra.name}")
+        else:
+            print(f"  extra signals: none at {candidate_extra.name} (phon/dense features = 0)")
+
+    decision_v2_params = None
+    if args.decision_v2:
+        policy_path = (
+            Path(args.decision_v2_policy)
+            if args.decision_v2_policy
+            else PATH_OUTPUT_DIR / "l10_decision_v2_policy.json"
+        )
+        if policy_path.exists():
+            decision_v2_params = json.loads(policy_path.read_text(encoding="utf-8"))
+            print(
+                f"  decision v2 policy: {policy_path.name} "
+                f"(recall_hat={decision_v2_params.get('recall_hat')}, "
+                f"per_country={decision_v2_params.get('per_country')})"
+            )
+        else:
+            print(f"  ⚠️  --decision-v2 set but no policy at {policy_path}; using v1 rule")
+
     if args.no_scores:
         scores_out = None
     elif args.scores_out:
@@ -375,6 +467,7 @@ def main() -> None:
         split=args.split,
         candidate_pairs_path=candidate_in,
         booster=booster,
+        stack_scorer=stack_scorer,
         calibrator=calibrator,
         tau_match=tau_match,
         tau_s=tau_s,
@@ -389,6 +482,8 @@ def main() -> None:
         max_shards=args.max_shards,
         idf_max_shards=args.idf_max_shards,
         signals_path=signals_file,
+        extra_signals=extra_signals_file,
+        decision_v2_params=decision_v2_params,
         scores_out=scores_out,
     )
 

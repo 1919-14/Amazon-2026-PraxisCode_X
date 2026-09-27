@@ -35,14 +35,14 @@ def norm(s: str) -> str:
     return " ".join("".join(out).split())
 
 
-def read_rows(path, limit=None):
+def read_rows(path, limit=None, min_cols=1):
     with open(path, "r", encoding="utf-8", newline="") as f:
         r = csv.reader(f, delimiter="\t")
-        header = next(r)
+        next(r)
         for i, row in enumerate(r):
             if limit is not None and i >= limit:
                 break
-            if len(row) < 4:
+            if len(row) < min_cols:
                 continue
             yield row
 
@@ -67,6 +67,7 @@ def scan_duplicates(s1_sample, s2_path, s3_path, split_label):
     hits_name = set()
     hits_nameaddr = set()
     hits_name_country = set()
+    cand_map = defaultdict(set)
     pair_examples = []
     for src_path, tag in ((s2_path, "S2"), (s3_path, "S3")):
         for row in read_rows(src_path):
@@ -77,6 +78,7 @@ def scan_duplicates(s1_sample, s2_path, s3_path, split_label):
             if n in name_key:
                 for s1 in name_key[n]:
                     hits_name.add(s1)
+                    cand_map[s1].add(eid)
                     if s1 in s1_sample and s1_sample[s1][2] == c:
                         hits_name_country.add(s1)
                     if len(pair_examples) < 8:
@@ -95,7 +97,7 @@ def scan_duplicates(s1_sample, s2_path, s3_path, split_label):
           f"({len(hits_nameaddr)/total:.4f})")
     for s1, other, _ in pair_examples[:5]:
         print(f"    e.g. {s1}  <-exact-name->  {other}")
-    return hits_name, hits_nameaddr
+    return hits_name, hits_nameaddr, cand_map
 
 
 def load_gt(limit=ID_PAIR_SAMPLE):
@@ -109,7 +111,7 @@ def load_gt(limit=ID_PAIR_SAMPLE):
     return gt
 
 
-def h1_vs_gt(s1_sample, gt, hits_name, hits_nameaddr):
+def h1_vs_gt(s1_sample, gt, hits_name, hits_nameaddr, cand_map):
     """Is the exact-twin set actually the ground truth?"""
     print("\n=== H1 verified against TRAIN ground truth ===")
     keys = [k for k in s1_sample if k in gt]
@@ -117,16 +119,32 @@ def h1_vs_gt(s1_sample, gt, hits_name, hits_nameaddr):
     singleton = [k for k in keys if not gt[k]]
     print(f"  sampled S1 present in GT: {len(keys):,} | "
           f"non-singleton: {len(non_singleton):,} | singleton: {len(singleton):,}")
+    if not keys:
+        print("  (no overlap between the sampled S1 ids and the GT rows)")
+        return
 
     # recall of the name-twin rule on non-singletons
-    covered = sum(1 for k in non_singleton if k in hits_name)
-    print(f"  non-singletons with >=1 name twin: {covered:,} ({covered/max(1,len(non_singleton)):.4f})")
+    covered = [k for k in non_singleton if k in hits_name]
+    print(f"  non-singletons with >=1 name twin : {len(covered):,}/{len(non_singleton):,} "
+          f"({len(covered)/max(1,len(non_singleton)):.4f})  <- rule recall")
+
+    # precision of the name-twin rule: are the twin candidates real matches?
+    if covered:
+        tp = sum(len(cand_map[k] & gt[k]) for k in covered)
+        cand = sum(len(cand_map[k]) for k in covered)
+        exact_set = sum(1 for k in covered if cand_map[k] == gt[k])
+        print(f"  twin candidates that are true matches  : {tp:,}/{cand:,} "
+              f"({tp/max(1,cand):.4f})  <- rule precision")
+        print(f"  exact (twin set == GT set)             : {exact_set:,}"
+              f"/{len(covered):,} ({exact_set/max(1,len(covered)):.4f})")
+        avg_t = cand / len(covered)
+        print(f"  avg twin-set size for covered entities : {avg_t:.2f}")
 
     # do singletons also have name twins? (would be false positives for the rule)
     if singleton:
         s_hit = sum(1 for k in singleton if k in hits_name)
-        print(f"  singletons with >=1 name twin (false-positive risk): "
-              f"{s_hit:,} ({s_hit/len(singleton):.4f})")
+        print(f"  singletons with >=1 name twin (FALSE POSITIVES): "
+              f"{s_hit:,}/{len(singleton):,} ({s_hit/len(singleton):.4f})")
 
 
 def h2_id_arithmetic(gt, limit=ID_PAIR_SAMPLE):
@@ -160,6 +178,9 @@ def h2_id_arithmetic(gt, limit=ID_PAIR_SAMPLE):
 
     # random baseline for tail3 / first3 (expected ~1/1000 and ~1/1000 approx)
     print(f"  matched pairs tested: {tot:,}")
+    if tot == 0:
+        print("  (no pairs)")
+        return
     print(f"  share last-3 digits : {same_tail3:,} ({same_tail3/tot:.5f})  [random ~0.001]")
     print(f"  share last-2 digits : {same_tail2:,} ({same_tail2/tot:.5f})  [random ~0.010]")
     print(f"  share first-3 digits: {same_first3:,} ({same_first3/tot:.5f})  [random ~0.001]")
@@ -199,10 +220,10 @@ def main():
     gt = load_gt()
     train_s1 = {k: v for k, v in
                 sample_s1(os.path.join(DS, "train", "train_source1.tsv"), SAMPLE_N).items()}
-    hits_name, hits_nameaddr = scan_duplicates(
+    hits_name, hits_nameaddr, cand_map = scan_duplicates(
         train_s1, os.path.join(DS, "train", "train_source2.tsv"),
         os.path.join(DS, "train", "train_source3.tsv"), "train")
-    h1_vs_gt(train_s1, gt, hits_name, hits_nameaddr)
+    h1_vs_gt(train_s1, gt, hits_name, hits_nameaddr, cand_map)
     h2_id_arithmetic(gt)
     h3_positional(gt)
 

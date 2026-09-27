@@ -67,6 +67,11 @@ from l10_decision.decision import (
     write_id_list_tsv,
 )
 from l10_decision.open_set import resolve_open_set_policy
+from l10_decision.decision_v2 import (
+    DEFAULT_RECALL_HAT,
+    apply_decision_v2,
+    tune_decision_v2,
+)
 
 from main_l3 import load_ground_truth
 from main_l6 import load_reference_countries
@@ -130,6 +135,36 @@ def parse_args() -> argparse.Namespace:
         help="Output TSV path (default: matching_results[_val].tsv).",
     )
     parser.add_argument("--no-write-output", action="store_true", help="Report only, skip the TSV.")
+    parser.add_argument(
+        "--decision-v2",
+        action="store_true",
+        help="Use entity-level expected-F0.5 set selection (per-country).",
+    )
+    parser.add_argument(
+        "--recall-hat",
+        type=float,
+        default=DEFAULT_RECALL_HAT,
+        help="Fallback true-count estimator for entity-level selection (test split).",
+    )
+    parser.add_argument(
+        "--tau-floor",
+        type=float,
+        default=0.0,
+        help="Probability floor for the entity-level rule.",
+    )
+    parser.add_argument(
+        "--recall-hats",
+        type=float,
+        nargs="+",
+        default=[0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 1.0],
+        help="Grid searched on the train split.",
+    )
+    parser.add_argument(
+        "--decision-v2-policy",
+        type=str,
+        default=None,
+        help="Tuned decision-v2 policy JSON (default: output/l10_decision_v2_policy.json).",
+    )
     return parser.parse_args()
 
 
@@ -279,7 +314,7 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # Apply the decision rule.
+    # Apply the decision rule (v1 global thresholds, or v2 entity-level F0.5).
     # ------------------------------------------------------------------
     grouped = group_scores(scores)
     predictions = apply_decision_rule(
@@ -292,6 +327,66 @@ def main() -> None:
         open_set_boost=open_set_boost,
         veto_min_confidence=veto_min_confidence,
     )
+
+    decision_params = None
+    if args.decision_v2:
+        if gt_map:
+            decision_params = tune_decision_v2(
+                scores,
+                gt_map,
+                reference_ids,
+                country_by_ref=ref_country,
+                recall_hats=args.recall_hats,
+                tau_floors=sorted({0.0, args.tau_floor, 0.1, 0.2, 0.3, 0.5}),
+                open_set_ids=open_set_ids,
+            )
+            v1_score = tuned["macro_f05"] if tuned else None
+            print(
+                f"  decision v2 tuned: recall_hat={decision_params['recall_hat']} "
+                f"tau_floor={decision_params['tau_floor']} "
+                f"per_country={decision_params['per_country']} → "
+                f"macro F0.5={decision_params['macro_f05']:.4f}"
+                + (f" (v1 was {v1_score:.4f})" if v1_score is not None else "")
+            )
+            policy_path = (
+                Path(args.decision_v2_policy)
+                if args.decision_v2_policy
+                else PATH_OUTPUT_DIR / "l10_decision_v2_policy.json"
+            )
+            policy_path.parent.mkdir(parents=True, exist_ok=True)
+            policy_path.write_text(json.dumps(decision_params, indent=2), encoding="utf-8")
+            print(f"  saved decision v2 policy: {policy_path}")
+        else:
+            policy_path = (
+                Path(args.decision_v2_policy)
+                if args.decision_v2_policy
+                else PATH_OUTPUT_DIR / "l10_decision_v2_policy.json"
+            )
+            if policy_path.exists():
+                decision_params = json.loads(policy_path.read_text(encoding="utf-8"))
+                print(f"  decision v2 policy: {policy_path.name} (from the train run)")
+            else:
+                decision_params = {
+                    "recall_hat": args.recall_hat,
+                    "tau_floor": args.tau_floor,
+                    "per_country": {},
+                }
+                print(
+                    f"  decision v2: no policy on disk; recall_hat={args.recall_hat} "
+                    "(run main_l10.py --split train --decision-v2 to tune it)"
+                )
+
+        predictions = apply_decision_v2(
+            grouped,
+            reference_ids,
+            recall_hat=float(decision_params.get("recall_hat", args.recall_hat)),
+            per_country=decision_params.get("per_country", {}),
+            country_by_ref=ref_country,
+            tau_floor=float(decision_params.get("tau_floor", args.tau_floor)),
+            open_set_ids=open_set_ids,
+            open_set_recall_hat=float(decision_params.get("recall_hat", args.recall_hat)),
+            veto_min_confidence=veto_min_confidence,
+        )
 
     n_non_empty = sum(1 for ids in predictions.values() if ids)
     n_singletons = len(predictions) - n_non_empty
@@ -347,8 +442,10 @@ def main() -> None:
             "open_set_boost": open_set_boost,
             "veto_min_confidence": veto_min_confidence,
             "open_set_policy_source": policy_source,
+            "decision_v2": bool(args.decision_v2),
         },
         "tuned": tuned,
+        "decision_v2": decision_params,
         "open_set_references": len(open_set_ids),
         "references": len(predictions),
         "non_empty": n_non_empty,

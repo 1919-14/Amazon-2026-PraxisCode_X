@@ -33,6 +33,7 @@ from config import L10_OPEN_SET_COUNTRIES, L10_SEEN_COUNTRIES
 from l3_l5_blocking.buckets import assign_country, iter_source_shards
 from l6_l8_matching.features import FEATURE_NAMES, build_idf, compute_features
 from l6_l8_matching.signals import MODE_SIDECAR, MODE_ZEROS, SignalStream
+from l6_l8_matching.extra_signals import ExtraSignalStream, extra_signals_path
 from l10_decision.decision import apply_decision_rule, write_id_list_tsv
 from l11_inference.scorer import calibrate_scores, score_matrix
 from main_l6 import load_reference_countries
@@ -44,7 +45,10 @@ RECORD_COLUMNS: list[str] = [
     "name_core",
     "name_norm",
     "name_tokens",
+    "name_phonetic",
     "name_legal_suffix",
+    "script_type",
+    "is_missing_name",
     "addr_norm",
     "addr_tokens",
     "addr_house_number",
@@ -209,7 +213,8 @@ def write_score_table(
 def run_inference(
     split: str,
     candidate_pairs_path: str | Path,
-    booster,
+    booster=None,
+    stack_scorer=None,
     idf: Optional[dict[str, float]] = None,
     calibrator: Optional[dict] = None,
     tau_match: float = 0.5,
@@ -225,6 +230,8 @@ def run_inference(
     max_shards: Optional[int] = None,
     idf_max_shards: Optional[int] = None,
     signals_path: Optional[str | Path] = None,
+    extra_signals: Optional[str | Path] = None,
+    decision_v2_params: Optional[dict] = None,
     scores_out: Optional[str | Path] = None,
     progress=print,
 ) -> tuple[dict[str, list[str]], dict]:
@@ -273,6 +280,10 @@ def run_inference(
     signals_mode = MODE_SIDECAR if signal_stream.enabled else MODE_ZEROS
     progress(f"  retrieval signals: {signals_mode} ({signal_stream.path or 'none'})")
 
+    extra_stream = ExtraSignalStream(extra_signals)
+    extra_mode = MODE_SIDECAR if extra_stream.enabled else MODE_ZEROS
+    progress(f"  extra signals: {extra_mode} ({extra_stream.path or 'none'})")
+
     if idf is None:
         progress("  building IDF from candidate records ...")
         idf = build_inference_idf(split, max_shards=idf_max_shards)
@@ -303,6 +314,9 @@ def run_inference(
             signals_row = (
                 signal_stream.next_row(ref, cand_map[ref]) if signal_stream.enabled else None
             )
+            extra_row = (
+                extra_stream.next_row(ref, cand_map[ref]) if extra_stream.enabled else None
+            )
             s1 = s1_lookup.get(ref)
             if s1 is None:
                 n_missing_record += len(cand_map[ref])
@@ -314,16 +328,21 @@ def run_inference(
                     n_missing_record += 1
                     continue
                 pair = {"rank": rank}
-                features = compute_features(
-                    s1, cand, pair, idf, signals_row[rank] if signals_row is not None else None
-                )
+                sig = signals_row[rank] if signals_row is not None else None
+                if extra_row is not None:
+                    sig = {**(sig or {}), **extra_row[rank]}
+                features = compute_features(s1, cand, pair, idf, sig)
                 rows.append(features)
                 row_refs.append(ref)
                 row_cands.append(cand_id)
                 row_countries.append(country)
 
         if rows:
-            probs = score_matrix(booster, np.asarray(rows, dtype=np.float32))
+            x = np.asarray(rows, dtype=np.float64)
+            if stack_scorer is not None:
+                probs = np.asarray(stack_scorer.predict_proba(x), dtype=np.float64)
+            else:
+                probs = score_matrix(booster, x)
             probs = calibrate_scores(probs, calibrator, row_countries if calibrator else None)
             for ref, cand_id, prob in zip(row_refs, row_cands, probs):
                 if prob >= tau_match:
@@ -344,16 +363,32 @@ def run_inference(
         or ref_country.get(ref, "other") not in seen
     }
 
-    predictions = apply_decision_rule(
-        kept,
-        refs,
-        tau_match=tau_match,
-        tau_s=tau_s,
-        margin=margin,
-        open_set_ids=open_set_ids,
-        open_set_boost=open_set_boost,
-        veto_min_confidence=veto_min_confidence,
-    )
+    if decision_v2_params is not None:
+        from l10_decision.decision_v2 import apply_decision_v2
+
+        recall_hat = float(decision_v2_params.get("recall_hat", 0.8))
+        predictions = apply_decision_v2(
+            kept,
+            refs,
+            recall_hat=recall_hat,
+            per_country=decision_v2_params.get("per_country", {}),
+            country_by_ref=ref_country,
+            tau_floor=float(decision_v2_params.get("tau_floor", 0.0)),
+            open_set_ids=open_set_ids,
+            open_set_recall_hat=recall_hat,
+            veto_min_confidence=veto_min_confidence,
+        )
+    else:
+        predictions = apply_decision_rule(
+            kept,
+            refs,
+            tau_match=tau_match,
+            tau_s=tau_s,
+            margin=margin,
+            open_set_ids=open_set_ids,
+            open_set_boost=open_set_boost,
+            veto_min_confidence=veto_min_confidence,
+        )
 
     scores_written = 0
     if scores_out is not None:
@@ -370,6 +405,9 @@ def run_inference(
         "matched_pairs": sum(len(ids) for ids in predictions.values()),
         "signals_mode": signals_mode,
         "signals_rows": signal_stream.rows_read,
+        "extra_signals_mode": extra_mode,
+        "extra_signals_rows": extra_stream.rows_read,
+        "decision_v2": decision_v2_params is not None,
         "scores_written": scores_written,
     }
     return predictions, stats
