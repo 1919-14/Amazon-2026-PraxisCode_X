@@ -425,6 +425,11 @@ def main() -> None:
     started = time.perf_counter()
     print(f"=== dense channel: split={args.split} country={country} ===")
 
+    out_path = args.output or (BLOCKING / f"dense_{args.split}_{args.split}_country={country}.parquet")
+    if out_path.exists() and not args.force_encode:
+        print(f"  [dense] output already exists at {out_path}, skipping encoding!")
+        return
+
     model = load_model(args.model, args.device)
     manifests = {}
     for source in ("s2", "s3"):
