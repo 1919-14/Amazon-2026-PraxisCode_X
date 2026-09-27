@@ -427,8 +427,18 @@ def main() -> None:
 
     out_path = args.output or (BLOCKING / f"dense_{args.split}_{args.split}_country={country}.parquet")
     if out_path.exists() and not args.force_encode:
-        print(f"  [dense] output already exists at {out_path}, skipping encoding!")
-        return
+        # Validate the file is not a partial/corrupted write before skipping
+        try:
+            meta = pq.read_metadata(str(out_path))
+            if meta.num_rows > 0:
+                print(f"  [dense] output already exists at {out_path} ({meta.num_rows:,} rows), skipping encoding!")
+                return
+            else:
+                print(f"  [dense] existing file has 0 rows — treating as corrupted, re-encoding...")
+                out_path.unlink()
+        except Exception as e:
+            print(f"  [dense] existing file is corrupted ({e}) — deleting and re-encoding...")
+            out_path.unlink()
 
     model = load_model(args.model, args.device)
     manifests = {}
