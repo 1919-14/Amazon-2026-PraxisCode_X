@@ -52,7 +52,15 @@ STAGES = ["l3", "l4", "l4x", "l5", "l6", "l7", "l8", "l9", "l10", "l11"]
 
 
 def available_ram_gb() -> float:
-    """Return available physical RAM in GB (Windows), or -1 when unknown."""
+    """Return available physical RAM in GB (Windows/Linux), or -1 when unknown."""
+    try:
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return float(line.split()[1]) / 1e6
+    except Exception:
+        pass
+
     class _MemStatus(ctypes.Structure):
         _fields_ = [
             ("dwLength", ctypes.c_ulong),
