@@ -10,8 +10,10 @@ try:
     import jellyfish
     _JELLYFISH_AVAILABLE = True
 except ImportError:
-    jellyfish = None  # type: ignore[assignment]
-    _JELLYFISH_AVAILABLE = False
+    import subprocess, sys
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "jellyfish>=1.0.0", "-q"])
+    import jellyfish  # type: ignore[no-redef]
+    _JELLYFISH_AVAILABLE = True
 
 try:
     import pyarrow as pa
