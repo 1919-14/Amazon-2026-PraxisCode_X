@@ -14,7 +14,7 @@
     "k_min": 6,
     "k_max": 12,
     "ref_batch": 10000,
-    "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet",
+    "signals": "/mnt/c/Users/saina/Videos/Amazon 2026/business_entity_resolution/artifacts/signals/candidates_test_all.parquet",
     "extra_signals": null
   },
   "references": 1732544,
@@ -30,7 +30,7 @@
   "reduction_ratio": 0.9999993981446478,
   "missing_artifacts": [],
   "run": "test_all",
-  "elapsed_seconds": 492.92,
+  "elapsed_seconds": 371.9,
   "runs": {
     "train_val": {
       "config": {
@@ -114,7 +114,7 @@
         "k_min": 6,
         "k_max": 12,
         "ref_batch": 10000,
-        "signals": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet",
+        "signals": "/mnt/c/Users/saina/Videos/Amazon 2026/business_entity_resolution/artifacts/signals/candidates_test_all.parquet",
         "extra_signals": null
       },
       "references": 1732544,
@@ -130,7 +130,7 @@
       "reduction_ratio": 0.9999993981446478,
       "missing_artifacts": [],
       "run": "test_all",
-      "elapsed_seconds": 492.92
+      "elapsed_seconds": 371.9
     }
   },
   "latest_run": "test_all",

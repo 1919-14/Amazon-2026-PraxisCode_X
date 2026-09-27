@@ -2,18 +2,18 @@
   "config": {
     "variant": "a",
     "split": "test",
-    "model": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\models\\lgbm_variant_a.txt",
-    "calibrator": "global",
-    "candidate_pairs": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\output\\candidate_pairs.tsv",
+    "model": "/mnt/c/Users/saina/Videos/Amazon 2026/business_entity_resolution/artifacts/models/lgbm_variant_a.txt",
+    "calibrator": "none",
+    "candidate_pairs": "/mnt/c/Users/saina/Videos/Amazon 2026/business_entity_resolution/output/candidate_pairs.tsv",
     "tau_match": 0.2,
-    "tau_s": 0.4,
+    "tau_s": 0.5,
     "margin": 0.05,
     "threshold_source": "l10_report",
     "open_set_boost": 0.1,
     "veto_min_confidence": 0.5,
     "open_set_policy_source": "config_default",
     "signals_mode": "sidecar",
-    "signals_path": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\signals\\candidates_test_all.parquet",
+    "signals_path": "/mnt/c/Users/saina/Videos/Amazon 2026/business_entity_resolution/artifacts/signals/candidates_test_all.parquet",
     "coverage_refs": "all",
     "max_references": null,
     "run": "test_a"
@@ -24,11 +24,14 @@
     "pairs_scored": 10395698,
     "pairs_missing_record": 0,
     "open_set_references": 259452,
-    "non_empty": 1594342,
-    "matched_pairs": 4145862,
+    "non_empty": 1585803,
+    "matched_pairs": 4188972,
     "signals_mode": "sidecar",
     "signals_rows": 10395698,
-    "scores_written": 5212920
+    "extra_signals_mode": "zeros",
+    "extra_signals_rows": 0,
+    "decision_v2": true,
+    "scores_written": 0
   },
   "coverage": {
     "split": "test",
@@ -46,9 +49,9 @@
     "ok": true
   },
   "outputs": {
-    "matching": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\output\\matching_results.tsv",
-    "candidate": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\output\\candidate_pairs.tsv",
-    "scores": "C:\\Users\\saina\\Videos\\Amazon 2026\\business_entity_resolution\\artifacts\\scores\\test_a.parquet"
+    "matching": "/mnt/c/Users/saina/Videos/Amazon 2026/business_entity_resolution/output/matching_results.tsv",
+    "candidate": "/mnt/c/Users/saina/Videos/Amazon 2026/business_entity_resolution/output/candidate_pairs.tsv",
+    "scores": null
   },
-  "validation_exit_code": 101
+  "validation_exit_code": 0
 }

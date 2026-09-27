@@ -59,7 +59,7 @@ CATBOOST_PARAMS: dict = {
     "depth": 6,
     "l2_leaf_reg": 3.0,
     "loss_function": "Logloss",
-    "verbose": 0,
+    "verbose": 100,
     "allow_writing_files": False,
 }
 
@@ -100,23 +100,31 @@ def _fit_predict_base(
     y_train: np.ndarray,
     x_val: np.ndarray,
     seed: int,
+    fold: int = 1,
+    total_folds: int = 5,
 ):
     """Fit one base learner; return its validation probabilities and model."""
+    import time
+    t0 = time.time()
+    print(f"    [{base.upper()}] Fold {fold}/{total_folds} starting ({len(x_train):,} train, {len(x_val):,} val)...", flush=True)
     if base == "lgbm":
         model = lgb.LGBMClassifier(**{**LGBM_PARAMS, "random_state": seed})
         model.fit(x_train, y_train)
+        print(f"    [{base.upper()}] Fold {fold}/{total_folds} complete in {time.time()-t0:.1f}s", flush=True)
         return model.predict_proba(x_val)[:, 1], model
     if base == "catboost":
         from catboost import CatBoostClassifier
 
         model = CatBoostClassifier(**{**CATBOOST_PARAMS, "random_seed": seed})
-        model.fit(x_train, y_train)
+        model.fit(x_train, y_train, verbose=100)
+        print(f"    [{base.upper()}] Fold {fold}/{total_folds} complete in {time.time()-t0:.1f}s", flush=True)
         return model.predict_proba(x_val)[:, 1], model
     if base == "xgboost":
         from xgboost import XGBClassifier
 
         model = XGBClassifier(**{**XGBOOST_PARAMS, "random_state": seed})
         model.fit(x_train, y_train)
+        print(f"    [{base.upper()}] Fold {fold}/{total_folds} complete in {time.time()-t0:.1f}s", flush=True)
         return model.predict_proba(x_val)[:, 1], model
     raise ValueError(f"unknown base learner: {base}")
 
@@ -219,10 +227,11 @@ def train_stack(
     importances = np.zeros(len(feature_names), dtype=np.float64)
 
     splitter = GroupKFold(n_splits=folds)
-    for train_idx, val_idx in splitter.split(x, y, groups):
+    for fold_num, (train_idx, val_idx) in enumerate(splitter.split(x, y, groups), 1):
+        print(f"\n  ── Fold {fold_num}/{folds} ──", flush=True)
         for col, base in enumerate(usable):
             probs, model = _fit_predict_base(
-                base, x[train_idx], y[train_idx], x[val_idx], seed
+                base, x[train_idx], y[train_idx], x[val_idx], seed, fold=fold_num, total_folds=folds
             )
             base_oof[val_idx, col] = probs
             fold_models[base].append(model)

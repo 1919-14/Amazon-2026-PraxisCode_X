@@ -456,6 +456,16 @@ def main() -> None:
     )
     print(f"output: {out_path} | rows={written:,} | runtime={time.perf_counter()-started:.1f}s")
 
+    # Clean up temporary cached .npy vectors to save Kaggle output disk quota
+    for source in ("s2", "s3"):
+        for part in manifests.get(source, {}).get("parts", []):
+            try:
+                Path(part["path"]).unlink(missing_ok=True)
+                Path(part["ids"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+    print("  [dense] cleaned up temporary intermediate vector .npy files")
+
     if args.evaluate:
         if args.split != "train":
             raise ValueError("evaluation is train-only")
